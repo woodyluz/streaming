@@ -1,6 +1,6 @@
-// Streamfinder Service Worker: App offline verfügbar, Poster zwischenspeichern
-const SHELL = "sf-shell-v2", IMGS = "sf-img-v1";
-const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg", "./icon-192.png", "./icon-512.png"];
+// Streamfinder Service Worker: App offline verfügbar, Poster zwischenspeichern, Push-Mitteilungen
+const SHELL = "sf-shell-v4", IMGS = "sf-img-v1", META = "sf-meta";
+const FILES = ["./", "./index.html", "./config.js", "./manifest.webmanifest", "./icon.svg", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES)));
@@ -8,7 +8,7 @@ self.addEventListener("install", e => {
 });
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys()
-    .then(keys => Promise.all(keys.filter(k => k !== SHELL && k !== IMGS).map(k => caches.delete(k))))
+    .then(keys => Promise.all(keys.filter(k => ![SHELL, IMGS, META].includes(k)).map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 async function trim(cache, max) {
@@ -28,13 +28,48 @@ self.addEventListener("fetch", e => {
     }));
     return;
   }
-  if (u.origin === location.origin) {
+  if (u.origin === location.origin && !u.pathname.endsWith("/__meta")) {
     e.respondWith(fetch(e.request)
       .then(r => { const copy = r.clone(); caches.open(SHELL).then(c => c.put(e.request, copy)); return r; })
       .catch(() => caches.match(e.request).then(r => r || caches.match("./index.html"))));
   }
 });
+
+// Push: Die Nachricht selbst ist leer. Der Inhalt wird beim Worker abgeholt.
+async function readMeta() {
+  const c = await caches.open(META), r = await c.match("./__meta");
+  return r ? r.json() : {};
+}
+async function writeMeta(m) {
+  const c = await caches.open(META);
+  await c.put("./__meta", new Response(JSON.stringify(m)));
+}
+async function handlePush() {
+  let shown = 0;
+  try {
+    const m = await readMeta();
+    if (m.proxy && m.sync) {
+      const r = await fetch(m.proxy.replace(/\/+$/, "") + "/api/inbox?after=" + (m.last || 0), { headers: { Authorization: "Bearer " + m.sync } });
+      const list = r.ok ? await r.json() : [];
+      const recent = list.slice(-3);
+      for (const n of recent) {
+        await self.registration.showNotification(n.title, { body: n.body, icon: "icon-192.png", badge: "icon-192.png", tag: "sf-" + n.id, data: { url: n.url } });
+        shown++;
+      }
+      if (list.length > 3) {
+        await self.registration.showNotification("Streamfinder", { body: `Und ${list.length - 3} weitere Neuigkeiten zu deinen Listen`, icon: "icon-192.png", tag: "sf-more", data: { url: "./#listen" } });
+      }
+      if (list.length) { m.last = Math.max(...list.map(n => n.t)); await writeMeta(m); }
+    }
+  } catch (err) {}
+  if (!shown) await self.registration.showNotification("Streamfinder", { body: "Es gibt Neuigkeiten zu deinen Listen.", icon: "icon-192.png", data: { url: "./#listen" } });
+}
+self.addEventListener("push", e => e.waitUntil(handlePush()));
 self.addEventListener("notificationclick", e => {
   e.notification.close();
-  e.waitUntil(self.clients.openWindow("./#merkliste"));
+  const url = new URL(e.notification.data?.url || "./#listen", self.registration.scope).href;
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(list => {
+    for (const c of list) if (c.url.startsWith(self.registration.scope)) { c.navigate(url); return c.focus(); }
+    return self.clients.openWindow(url);
+  }));
 });

@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Streamfinder</title>
+<meta name="theme-color" content="#d6452b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: Kopf mit Suche + Land, Reiter, darunter Filter und Poster-Raster; Details als Seitenblatt */
+:root{
+  --bg:#f6f4f1; --surface:#ffffff; --fg:#1d1a22; --muted:#6d6874; --line:#e4e0e8;
+  --accent:#d6452b; --accent-fg:#ffffff; --chip:#efecf2;
+  --good:#1f7a4d; --good-bg:#e1f2e8; --warn:#8a5a00; --warn-bg:#f8ecd2;
+  --display:"Fraunces",Georgia,serif; --body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#141218; --surface:#1e1b24; --fg:#efecf3; --muted:#9a94a3; --line:#2f2b37;
+  --accent:#f0674c; --accent-fg:#141218; --chip:#29252f;
+  --good:#6fd39c; --good-bg:#16301f; --warn:#e9b45a; --warn-bg:#33270f; color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#141218; --surface:#1e1b24; --fg:#efecf3; --muted:#9a94a3; --line:#2f2b37;
+  --accent:#f0674c; --accent-fg:#141218; --chip:#29252f;
+  --good:#6fd39c; --good-bg:#16301f; --warn:#e9b45a; --warn-bg:#33270f; color-scheme:dark}
+*{box-sizing:border-box}
+html{padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 var(--body)}
+[hidden]{display:none!important}
+.wrap{max-width:1180px;margin:0 auto;padding-block:18px 60px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;margin-bottom:12px}
+.logo{font:800 28px/1 var(--display);letter-spacing:-.02em;color:var(--fg);text-decoration:none}
+.logo span{color:var(--accent)}
+.search{display:flex;gap:8px;flex:1 1 300px;min-width:0}
+input,select,button{font:inherit;color:inherit}
+input[type=search],input[type=text],input[type=password],select{
+  padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+#q{flex:1;min-width:0}
+button{cursor:pointer;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 14px}
+button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+a{color:var(--accent)}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px;overflow-x:auto}
+.tabs a{padding:10px 14px;text-decoration:none;color:var(--muted);font-weight:500;border-bottom:2px solid transparent;
+  white-space:nowrap;display:flex;align-items:center;gap:6px}
+.tabs a[aria-current=page]{color:var(--fg);border-color:var(--accent)}
+.badge{background:var(--accent);color:var(--accent-fg);border-radius:99px;font-size:11px;font-weight:600;padding:1px 7px}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;align-items:center}
+.filters select{padding:8px 10px;font-size:14px;max-width:100%}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;border-radius:0;padding:8px 14px;font-size:14px;background:transparent}
+.seg button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
+.toggle{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:var(--muted)}
+.status{color:var(--muted);font-size:13px;margin:0 0 12px;min-height:20px}
+.label{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:22px 18px}
+.card{position:relative;display:flex;flex-direction:column;gap:6px;min-width:0}
+.hit{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:6px}
+.hit:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px}
+.poster{display:block;aspect-ratio:2/3;max-width:100%;border-radius:8px;background:var(--chip) center/cover;transition:transform .15s}
+.hit:hover .poster{transform:translateY(-3px)}
+.hit b{font-weight:600;font-size:14px;line-height:1.3}
+.hit small{color:var(--muted);font-size:12px}
+.save{position:absolute;top:6px;right:6px;width:34px;height:34px;padding:0;border-radius:99px;border:0;
+  background:rgb(20 18 24 / .6);color:#fff;display:grid;place-items:center}
+.save svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2}
+.save.on{background:var(--accent);color:var(--accent-fg)}
+.save.on svg{fill:currentColor}
+.new{position:absolute;top:8px;left:8px;background:var(--accent);color:var(--accent-fg);font-size:11px;font-weight:600;
+  padding:2px 8px;border-radius:99px}
+.chip{align-self:flex-start;font-size:11.5px;line-height:1.3;padding:3px 8px;border-radius:6px;background:var(--chip);color:var(--muted);max-width:100%}
+.chip.mine{background:var(--good-bg);color:var(--good);font-weight:600}
+.chip.flat{background:var(--chip);color:var(--fg)}
+.chip.pay{background:var(--warn-bg);color:var(--warn)}
+.chip.wait{color:transparent;min-width:70px}
+.more{display:block;margin:24px auto 0}
+.panelbox{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:16px;max-width:760px}
+.panelbox h2{font:600 20px/1.2 var(--display);margin:0 0 6px}
+.panelbox p{margin:0 0 12px;color:var(--muted);font-size:14px}
+.panelbox ol{padding-left:20px;margin:6px 0 14px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.row input{flex:1 1 240px;min-width:0}
+.pvgrid{display:flex;flex-wrap:wrap;gap:8px}
+.pv{display:flex;align-items:center;gap:8px;padding:5px 10px 5px 5px;font-size:13px}
+.pv img{width:28px;height:28px;border-radius:6px}
+.pv[aria-pressed=true]{border-color:var(--good);background:var(--good-bg);color:var(--good);font-weight:600}
+.cc{display:inline-flex;align-items:center;gap:6px;font-size:14px;padding:6px 10px;border:1px solid var(--line);border-radius:99px;background:var(--bg)}
+.empty{color:var(--muted);font-size:14px}
+/* Detail */
+.sheet{position:fixed;inset:0;background:rgb(0 0 0 / .5);display:flex;justify-content:flex-end;z-index:20}
+.panel{background:var(--bg);width:min(580px,100%);height:100%;overflow-y:auto;
+  padding:calc(20px + env(safe-area-inset-top,0px)) max(20px,env(safe-area-inset-right,0px)) calc(30px + env(safe-area-inset-bottom,0px)) 20px}
+.head{display:grid;grid-template-columns:110px 1fr;gap:16px;margin:8px 0 16px}
+.head h2{font:800 24px/1.15 var(--display);margin:0 0 4px;text-wrap:balance}
+.head p{margin:0;color:var(--muted);font-size:13px}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.actions a{display:inline-flex;align-items:center;padding:9px 14px;border:1px solid var(--line);border-radius:10px;
+  text-decoration:none;color:var(--fg);background:var(--surface)}
+.overview{font-size:14px;margin:0 0 20px}
+.group{margin-bottom:16px}
+.providers{display:flex;flex-wrap:wrap;gap:8px}
+.prov{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);
+  border-radius:10px;padding:5px 10px 5px 5px;font-size:13px;text-decoration:none;color:var(--fg)}
+.prov img{width:32px;height:32px;border-radius:7px}
+.prov.mine{border-color:var(--good);background:var(--good-bg);color:var(--good);font-weight:600}
+.compare{width:100%;border-collapse:collapse;font-size:13px}
+.compare td{padding:8px 4px;border-top:1px solid var(--line);vertical-align:middle}
+.compare td:first-child{width:110px;color:var(--muted)}
+.compare img{width:26px;height:26px;border-radius:6px;margin:0 4px 0 0;vertical-align:middle}
+.close{float:right}
+.foot{margin-top:40px;color:var(--muted);font-size:12px;display:flex;flex-wrap:wrap;gap:6px 16px}
+@media (prefers-reduced-motion:reduce){.poster{transition:none}}
+@media (max-width:480px){.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 12px}.head{grid-template-columns:90px 1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="logo" href="#entdecken">Stream<span>finder</span></a>
+    <div class="search">
+      <input id="q" type="search" placeholder="Film oder Serie suchen …" autocomplete="off" aria-label="Suche">
+      <select id="country" aria-label="Land"></select>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <a href="#entdecken" data-v="entdecken">Entdecken</a>
+    <a href="#merkliste" data-v="merkliste">Merkliste <span class="badge" id="badge" hidden></span></a>
+    <a href="#einstellungen" data-v="einstellungen">Einstellungen</a>
+  </nav>
+
+  <!-- Einrichtung -->
+  <section id="v-setup" hidden>
+    <div class="panelbox">
+      <h2>Zugang einrichten</h2>
+      <p>Die Verfügbarkeitsdaten kommen live von TMDB (Daten von JustWatch). Du brauchst einen kostenlosen Schlüssel:</p>
+      <ol>
+        <li>Konto auf <a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener">themoviedb.org</a> anlegen</li>
+        <li>Unter <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Einstellungen → API</a> einen Schlüssel beantragen</li>
+        <li>„API-Schlüssel“ oder „Lesezugriffstoken“ hier einfügen</li>
+      </ol>
+      <form class="row" id="setupForm">
+        <input id="setupKey" type="password" placeholder="API-Schlüssel oder Token" autocomplete="off">
+        <button class="primary" type="submit">Speichern</button>
+      </form>
+      <p style="margin-top:12px">Du hast einen eigenen Proxy (Cloudflare Worker)? Dann trage stattdessen seine Adresse ein:</p>
+      <form class="row" id="setupProxyForm">
+        <input id="setupProxy" type="text" placeholder="https://streamfinder.dein-name.workers.dev" autocomplete="off">
+        <button type="submit">Proxy verwenden</button>
+      </form>
+      <p class="status" id="setupStatus" style="margin-top:10px"></p>
+    </div>
+  </section>
+
+  <!-- Entdecken -->
+  <section id="v-entdecken" hidden>
+    <div class="filters">
+      <div class="seg" role="group" aria-label="Typ">
+        <button type="button" data-type="movie" aria-pressed="true">Filme</button>
+        <button type="button" data-type="tv" aria-pressed="false">Serien</button>
+      </div>
+      <select id="f-prov" aria-label="Anbieter"></select>
+      <select id="f-genre" aria-label="Genre"><option value="">Alle Genres</option></select>
+      <select id="f-year" aria-label="Erscheinungsjahr">
+        <option value="">Alle Jahre</option><option value="2025">ab 2025</option><option value="2020">ab 2020</option>
+        <option value="2015">ab 2015</option><option value="2010">ab 2010</option><option value="2000">ab 2000</option><option value="1990">ab 1990</option>
+      </select>
+      <select id="f-rating" aria-label="Mindestbewertung">
+        <option value="">Jede Bewertung</option><option value="6">ab 6,0</option><option value="7">ab 7,0</option><option value="8">ab 8,0</option>
+      </select>
+      <select id="f-sort" aria-label="Sortierung">
+        <option value="popularity.desc">Beliebt</option><option value="new">Neueste</option><option value="vote_average.desc">Beste Bewertung</option>
+      </select>
+    </div>
+    <p class="status" id="d-status"></p>
+    <div class="grid" id="d-grid"></div>
+    <button class="more" id="d-more" type="button" hidden>Mehr laden</button>
+  </section>
+
+  <!-- Suche -->
+  <section id="v-suche" hidden>
+    <div class="filters">
+      <p class="label" id="s-label" style="margin:0;flex:1">Suche</p>
+      <label class="toggle"><input type="checkbox" id="s-mine"> Nur in meinen Diensten</label>
+    </div>
+    <p class="status" id="s-status"></p>
+    <div class="grid" id="s-grid"></div>
+  </section>
+
+  <!-- Merkliste -->
+  <section id="v-merkliste" hidden>
+    <p class="status" id="w-status"></p>
+    <div class="grid" id="w-grid"></div>
+  </section>
+
+  <!-- Einstellungen -->
+  <section id="v-einstellungen" hidden>
+    <div class="panelbox">
+      <h2>Meine Dienste</h2>
+      <p>Wähle deine Abos. Sie werden überall hervorgehoben, und die Merkliste meldet sich, wenn ein Titel dazukommt.</p>
+      <div class="pvgrid" id="pv-grid"><p class="empty">Lade Anbieter …</p></div>
+      <button type="button" id="pv-all" style="margin-top:10px" hidden>Alle Anbieter anzeigen</button>
+    </div>
+    <div class="panelbox">
+      <h2>Länder vergleichen</h2>
+      <p>Diese Länder erscheinen zusätzlich in den Details, z. B. für Reisen oder VPN.</p>
+      <div class="row" id="cc-grid"></div>
+    </div>
+    <div class="panelbox">
+      <h2>Benachrichtigungen</h2>
+      <p>Streamfinder prüft deine Merkliste bei jedem Öffnen. Wird ein Titel neu in einem deiner Dienste verfügbar, bekommst du eine Mitteilung.</p>
+      <div class="row"><button type="button" id="n-btn">Benachrichtigungen erlauben</button><span class="empty" id="n-status"></span></div>
+    </div>
+    <div class="panelbox">
+      <h2>Zugang</h2>
+      <p id="a-info"></p>
+      <form class="row" id="keyForm">
+        <input id="keyInput" type="password" placeholder="Neuer API-Schlüssel oder Token" autocomplete="off">
+        <button type="submit">Schlüssel speichern</button>
+      </form>
+      <form class="row" id="proxyForm" style="margin-top:8px">
+        <input id="proxyInput" type="text" placeholder="Proxy-Adresse (optional)" autocomplete="off">
+        <button type="submit">Proxy speichern</button>
+      </form>
+      <p class="status" id="a-status" style="margin-top:10px"></p>
+    </div>
+    <div class="panelbox">
+      <h2>Daten</h2>
+      <p>Antworten von TMDB werden einige Stunden zwischengespeichert, damit die Seite schnell bleibt.</p>
+      <div class="row">
+        <button type="button" id="clearCache">Zwischenspeicher leeren</button>
+        <button type="button" id="logout">Zugang entfernen</button>
+        <span class="empty" id="c-status"></span>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">
+    <span>Verfügbarkeitsdaten: JustWatch via TMDB</span>
+    <span>Dieses Produkt nutzt die TMDB-API, ist aber nicht von TMDB unterstützt oder zertifiziert.</span>
+  </div>
+</div>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" id="panel"></div>
+</div>
+
+<script>
+const API = "https://api.themoviedb.org/3";
+const IMG = "https://image.tmdb.org/t/p/";
+const COUNTRIES = {CH:"Schweiz",DE:"Deutschland",AT:"Österreich",LU:"Luxemburg",FR:"Frankreich",IT:"Italien",BE:"Belgien",
+  NL:"Niederlande",ES:"Spanien",PT:"Portugal",GB:"Grossbritannien",IE:"Irland",US:"USA",CA:"Kanada",SE:"Schweden",
+  DK:"Dänemark",NO:"Norwegen",PL:"Polen"};
+const GROUPS = [["flatrate","Im Abo"],["free","Kostenlos"],["ads","Mit Werbung"],["rent","Leihen"],["buy","Kaufen"]];
+const H = 3600e3;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* ---------- Speicher ---------- */
+const store = {
+  get(k){ try { return localStorage.getItem(k) } catch(e){ return null } },
+  set(k,v){ try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k,v); return true } catch(e){ return false } },
+  json(k,d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d } catch(e){ return d } }
+};
+const S = {
+  key: store.json("sf:key", store.get("tmdb_key") || ""),
+  proxy: store.json("sf:proxy", ""),
+  country: store.json("sf:country", store.get("country") || "CH"),
+  mine: store.json("sf:mine", []),
+  compare: store.json("sf:compare", ["DE","AT"]),
+  watch: store.json("sf:watch", [])
+};
+const save = k => store.set("sf:"+k, JSON.stringify(S[k]));
+const hasAuth = () => !!(S.key || S.proxy);
+
+/* ---------- TMDB mit Cache ---------- */
+const mem = new Map(), inflight = new Map();
+function cacheGet(k, ttl){
+  let e = mem.get(k);
+  if (!e){ e = store.json(k, null); if (e) mem.set(k, e) }
+  return e && Date.now() - e.t < ttl ? e.d : null;
+}
+function cacheSet(k, d){
+  const e = {t: Date.now(), d}; mem.set(k, e);
+  if (!store.set(k, JSON.stringify(e))){ clearCache(false); store.set(k, JSON.stringify(e)) }
+}
+function clearCache(all = true){
+  try { Object.keys(localStorage).filter(k => k.startsWith("sfc:")).forEach(k => localStorage.removeItem(k)) } catch(e){}
+  if (all) mem.clear();
+}
+async function tmdb(path, params = {}, ttl = 6*H){
+  const base = S.proxy ? S.proxy.replace(/\/+$/,"") + "/3" : API;
+  const url = new URL(base + path);
+  url.searchParams.set("language", "de-DE");
+  for (const [k,v] of Object.entries(params)) if (v !== "" && v != null) url.searchParams.set(k, v);
+  const ck = "sfc:" + url.pathname + url.search;
+  if (ttl){ const c = cacheGet(ck, ttl); if (c) return c }
+  if (inflight.has(ck)) return inflight.get(ck);
+  const bearer = !S.proxy && S.key.length > 40;
+  if (!S.proxy && !bearer) url.searchParams.set("api_key", S.key);
+  const p = (async () => {
+    let res;
+    try { res = await fetch(url, bearer ? {headers:{Authorization:"Bearer " + S.key}} : {}) }
+    catch(e){ throw new Error(S.proxy ? "Der Proxy ist nicht erreichbar. Prüfe die Adresse in den Einstellungen." : "Keine Verbindung zu TMDB. Prüfe deine Internetverbindung.") }
+    if (res.status === 401) throw new Error("Der API-Schlüssel wurde abgelehnt. Bitte prüfe ihn in den Einstellungen.");
+    if (res.status === 403) throw new Error("Der Proxy lässt diese Seite nicht zu. Prüfe ALLOWED_ORIGIN im Worker.");
+    if (res.status === 429) throw new Error("Zu viele Anfragen. Warte einen Moment und versuche es erneut.");
+    if (!res.ok) throw new Error("TMDB antwortet mit Fehler " + res.status + ". Versuche es gleich nochmal.");
+    const d = await res.json();
+    if (ttl) cacheSet(ck, d);
+    return d;
+  })();
+  inflight.set(ck, p);
+  try { return await p } finally { inflight.delete(ck) }
+}
+
+/* ---------- Hilfen ---------- */
+const titleOf = it => it.title || it.name || "";
+const yearOf = it => String(it.release_date || it.first_air_date || it.year || "").slice(0,4);
+const ITEMS = new Map();
+async function pool(list, n, fn){
+  let i = 0;
+  await Promise.all(Array.from({length: Math.min(n, list.length)}, async () => { while (i < list.length) await fn(list[i++]) }));
+}
+async function regionOf(type, id){
+  const d = await tmdb(`/${type}/${id}/watch/providers`, {}, 6*H);
+  return (d.results || {})[S.country];
+}
+const flatOf = r => r ? [...(r.flatrate||[]), ...(r.free||[]), ...(r.ads||[])] : [];
+function statusOf(r){
+  const flat = flatOf(r);
+  const mine = flat.filter(p => S.mine.includes(p.provider_id));
+  if (mine.length) return {kind:"mine", text:"Bei " + [...new Set(mine.map(p => p.provider_name))].slice(0,2).join(", ")};
+  if (flat.length) return {kind:"flat", text:"Im Abo: " + flat[0].provider_name + (flat.length > 1 ? " +" + (flat.length-1) : "")};
+  if (r && ((r.rent||[]).length || (r.buy||[]).length)) return {kind:"pay", text:"Leihen oder kaufen"};
+  return {kind:"none", text:"Nicht verfügbar"};
+}
+async function providerList(){
+  const opt = {watch_region: S.country};
+  const [m, t] = await Promise.all([tmdb("/watch/providers/movie", opt, 72*H), tmdb("/watch/providers/tv", opt, 72*H)]);
+  const map = new Map();
+  for (const p of [...m.results, ...t.results]) if (!map.has(p.provider_id)) map.set(p.provider_id, p);
+  return [...map.values()].sort((a,b) => (a.display_priorities?.[S.country] ?? 999) - (b.display_priorities?.[S.country] ?? 999));
+}
+
+/* ---------- Karten ---------- */
+const bookmark = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"/></svg>`;
+const isSaved = key => S.watch.some(w => w.key === key);
+function cardHTML(it){
+  const type = it.media_type, key = type + ":" + it.id;
+  ITEMS.set(key, {key, type, id: it.id, title: titleOf(it), poster: it.poster_path || null, year: yearOf(it)});
+  const saved = isSaved(key);
+  return `<article class="card" data-key="${key}" data-type="${type}" data-id="${it.id}">
+    <button class="hit" type="button">
+      <span class="poster" style="${it.poster_path ? `background-image:url(${IMG}w342${it.poster_path})` : ""}"></span>
+      <b>${esc(titleOf(it))}</b>
+      <small>${type === "tv" ? "Serie" : "Film"}${yearOf(it) ? " · " + yearOf(it) : ""}</small>
+    </button>
+    <span class="chip wait">·</span>
+    <button class="save${saved ? " on" : ""}" type="button" aria-pressed="${saved}" aria-label="Auf die Merkliste">${bookmark}</button>
+    ${it.isNew ? `<span class="new">Neu für dich</span>` : ""}
+  </article>`;
+}
+async function decorate(root, after){
+  const cards = [...root.querySelectorAll(".card:not([data-done])")];
+  await pool(cards, 6, async c => {
+    c.dataset.done = "1";
+    const chip = c.querySelector(".chip");
+    try {
+      const s = statusOf(await regionOf(c.dataset.type, c.dataset.id));
+      chip.className = "chip " + s.kind; chip.textContent = s.text; c.dataset.kind = s.kind;
+    } catch(e){ chip.className = "chip"; chip.textContent = "Unbekannt" }
+    after && after(c);
+  });
+}
+
+/* ---------- Ansichten ---------- */
+const VIEWS = ["setup","entdecken","suche","merkliste","einstellungen"];
+function show(v){
+  for (const x of VIEWS) $("v-"+x).hidden = x !== v;
+  $("tabs").hidden = v === "setup";
+  for (const a of $("tabs").querySelectorAll("a"))
+    a.dataset.v === v ? a.setAttribute("aria-current","page") : a.removeAttribute("aria-current");
+}
+function route(){
+  if (!hasAuth()){ show("setup"); return }
+  let v = location.hash.slice(1) || "entdecken";
+  if (!VIEWS.includes(v) || v === "setup") v = "entdecken";
+  if (v === "suche" && $("q").value.trim().length < 2) v = "entdecken";
+  show(v);
+  if (v === "entdecken" && D.dirty) loadDiscover(false);
+  if (v === "suche") runSearch();
+  if (v === "merkliste") renderWatch();
+  if (v === "einstellungen") renderSettings();
+}
+window.addEventListener("hashchange", route);
+
+/* ---------- Entdecken ---------- */
+const D = {type:"movie", page:1, total:1, dirty:true, seq:0};
+async function fillFilters(){
+  const prov = $("f-prov"), cur = prov.value;
+  prov.innerHTML = "";
+  if (S.mine.length) prov.add(new Option("Meine Dienste", "mine"));
+  prov.add(new Option("Alle Anbieter", "all"));
+  try {
+    const list = await providerList();
+    for (const p of list.slice(0, 25)) prov.add(new Option(p.provider_name, p.provider_id));
+  } catch(e){}
+  prov.value = [...prov.options].some(o => o.value === cur) ? cur : (S.mine.length ? "mine" : "all");
+  await fillGenres();
+}
+async function fillGenres(){
+  const g = $("f-genre"), cur = g.value;
+  g.innerHTML = `<option value="">Alle Genres</option>`;
+  try {
+    const d = await tmdb(`/genre/${D.type}/list`, {}, 168*H);
+    for (const x of d.genres) g.add(new Option(x.name, x.id));
+  } catch(e){}
+  if ([...g.options].some(o => o.value === cur)) g.value = cur;
+}
+async function loadDiscover(append){
+  const seq = ++D.seq;
+  D.dirty = false;
+  if (!append){ D.page = 1; $("d-grid").innerHTML = ""; }
+  $("d-status").textContent = "Lade …"; $("d-more").hidden = true;
+  const tv = D.type === "tv", dk = tv ? "first_air_date" : "primary_release_date";
+  const today = new Date().toISOString().slice(0,10);
+  const p = {watch_region: S.country, page: D.page, include_adult: "false", sort_by: $("f-sort").value};
+  if (p.sort_by === "new"){ p.sort_by = dk + ".desc"; p[dk + ".lte"] = today; p["vote_count.gte"] = 5 }
+  if (p.sort_by === "vote_average.desc") p["vote_count.gte"] = 300;
+  const pv = $("f-prov").value;
+  const ids = pv === "all" ? [] : pv === "mine" ? S.mine : [pv];
+  if (ids.length){ p.with_watch_providers = ids.join("|"); p.with_watch_monetization_types = "flatrate|free|ads" }
+  if ($("f-genre").value) p.with_genres = $("f-genre").value;
+  if ($("f-year").value) p[dk + ".gte"] = $("f-year").value + "-01-01";
+  if ($("f-rating").value){ p["vote_average.gte"] = $("f-rating").value; p["vote_count.gte"] = Math.max(p["vote_count.gte"] || 0, 100) }
+  try {
+    const d = await tmdb(`/discover/${D.type}`, p, H);
+    if (seq !== D.seq) return;
+    D.total = d.total_pages;
+    $("d-grid").insertAdjacentHTML("beforeend", d.results.map(x => cardHTML({...x, media_type: D.type})).join(""));
+    const where = pv === "all" ? "" : pv === "mine" ? " in deinen Diensten" : " bei " + $("f-prov").selectedOptions[0].text;
+    $("d-status").textContent = d.total_results
+      ? `${d.total_results.toLocaleString("de-CH")} ${tv ? "Serien" : "Filme"}${where} · ${COUNTRIES[S.country]}`
+      : "Keine Treffer. Lockere die Filter etwas.";
+    $("d-more").hidden = D.page >= D.total;
+    decorate($("d-grid"));
+  } catch(e){ if (seq === D.seq) $("d-status").textContent = e.message }
+}
+for (const b of document.querySelectorAll(".seg button")) b.addEventListener("click", async () => {
+  D.type = b.dataset.type;
+  for (const x of document.querySelectorAll(".seg button")) x.setAttribute("aria-pressed", x === b);
+  await fillGenres(); loadDiscover(false);
+});
+for (const id of ["f-prov","f-genre","f-year","f-rating","f-sort"]) $(id).addEventListener("change", () => loadDiscover(false));
+$("d-more").addEventListener("click", () => { D.page++; loadDiscover(true) });
+
+/* ---------- Suche ---------- */
+let sTimer, sSeq = 0;
+$("q").addEventListener("input", () => {
+  clearTimeout(sTimer);
+  sTimer = setTimeout(() => {
+    const q = $("q").value.trim();
+    if (q.length < 2){ if (location.hash === "#suche") location.hash = "entdecken"; return }
+    location.hash === "#suche" ? runSearch() : (location.hash = "suche");
+  }, 350);
+});
+$("q").addEventListener("keydown", e => { if (e.key === "Enter"){ clearTimeout(sTimer); $("q").dispatchEvent(new Event("input")) } });
+async function runSearch(){
+  const q = $("q").value.trim(), seq = ++sSeq;
+  $("s-label").textContent = `Ergebnisse für „${q}“`;
+  $("s-status").textContent = "Suche …";
+  try {
+    const d = await tmdb("/search/multi", {query: q, include_adult: "false"}, H);
+    if (seq !== sSeq) return;
+    const list = d.results.filter(x => x.media_type === "movie" || x.media_type === "tv");
+    $("s-grid").innerHTML = list.map(cardHTML).join("");
+    $("s-status").textContent = list.length ? "" : "Keine Treffer. Versuche einen anderen Titel.";
+    applyMine();
+    decorate($("s-grid"), applyMine);
+  } catch(e){ if (seq === sSeq) $("s-status").textContent = e.message }
+}
+function applyMine(){
+  const on = $("s-mine").checked;
+  const cards = [...$("s-grid").querySelectorAll(".card")];
+  for (const c of cards) c.hidden = on && c.dataset.done && c.dataset.kind !== "mine";
+  if (on && !S.mine.length) $("s-status").innerHTML = `Wähle zuerst deine Dienste in den <a href="#einstellungen">Einstellungen</a>.`;
+  else if (on && cards.length && cards.every(c => c.dataset.done)) {
+    const n = cards.filter(c => !c.hidden).length;
+    $("s-status").textContent = n ? `${n} Treffer in deinen Diensten` : "Keiner dieser Treffer ist in deinen Diensten.";
+  } else if (!on && cards.length) $("s-status").textContent = "";
+}
+$("s-mine").addEventListener("change", applyMine);
+
+/* ---------- Merkliste ---------- */
+function toggleWatch(key){
+  const i = S.watch.findIndex(w => w.key === key);
+  if (i >= 0) S.watch.splice(i, 1);
+  else {
+    const it = ITEMS.get(key); if (!it) return;
+    const w = {...it, added: Date.now()};
+    S.watch.unshift(w);
+    regionOf(w.type, w.id).then(r => { w.lastFlat = flatOf(r).map(p => p.provider_id); w.lastCountry = S.country; save("watch") }).catch(() => {});
+  }
+  save("watch"); updateBadge();
+  for (const b of document.querySelectorAll(`.card[data-key="${key}"] .save, [data-watch="${key}"]`)) {
+    const on = isSaved(key);
+    b.classList.toggle("on", on); b.setAttribute("aria-pressed", on);
+    if (b.dataset.watch) b.textContent = on ? "Gemerkt" : "Merken";
+  }
+  if (location.hash === "#merkliste") renderWatch();
+}
+function updateBadge(){
+  const n = S.watch.filter(w => w.isNew).length;
+  $("badge").hidden = !n; $("badge").textContent = n;
+}
+function renderWatch(){
+  const g = $("w-grid");
+  if (!S.watch.length){
+    g.innerHTML = "";
+    $("w-status").textContent = "Noch nichts gemerkt. Tippe auf das Lesezeichen bei einem Titel, um ihn hier zu sammeln.";
+    return;
+  }
+  const order = {mine:0, flat:1, pay:2, none:3};
+  g.innerHTML = S.watch.map(w => cardHTML({media_type: w.type, id: w.id, title: w.title, poster_path: w.poster, year: w.year, isNew: w.isNew})).join("");
+  $("w-status").textContent = `${S.watch.length} gemerkt · Verfügbarkeit in ${COUNTRIES[S.country]}`;
+  decorate(g).then(() => {
+    const cards = [...g.children].sort((a,b) => (order[a.dataset.kind] ?? 4) - (order[b.dataset.kind] ?? 4));
+    cards.forEach(c => g.appendChild(c));
+    const n = cards.filter(c => c.dataset.kind === "mine").length;
+    if (S.mine.length) $("w-status").textContent = `${S.watch.length} gemerkt · ${n} davon in deinen Diensten (${COUNTRIES[S.country]})`;
+  });
+}
+async function checkWatch(){
+  const fresh = [];
+  await pool(S.watch, 4, async w => {
+    try {
+      const flat = flatOf(await regionOf(w.type, w.id));
+      const ids = flat.map(p => p.provider_id);
+      if (w.lastFlat && w.lastCountry === S.country){
+        const added = flat.filter(p => !w.lastFlat.includes(p.provider_id) && S.mine.includes(p.provider_id));
+        if (added.length){ w.isNew = true; fresh.push([w, [...new Set(added.map(p => p.provider_name))].join(", ")]) }
+      }
+      w.lastFlat = ids; w.lastCountry = S.country;
+    } catch(e){}
+  });
+  save("watch"); updateBadge();
+  for (const [w, names] of fresh) notify("Jetzt in deinen Diensten", `${w.title} ist neu bei ${names}`);
+}
+async function notify(title, body){
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const opt = {body, icon: "icon-192.png", tag: "sf-" + title + body};
+  try {
+    const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
+    reg ? reg.showNotification(title, opt) : new Notification(title, opt);
+  } catch(e){}
+}
+
+/* ---------- Details ---------- */
+async function openDetail(type, id){
+  const panel = $("panel"), key = type + ":" + id;
+  panel.innerHTML = `<button class="close" type="button" data-close>Schliessen</button><p class="status">Lade Verfügbarkeit …</p>`;
+  $("sheet").hidden = false;
+  const w = S.watch.find(x => x.key === key);
+  if (w && w.isNew){ w.isNew = false; save("watch"); updateBadge(); document.querySelectorAll(`.card[data-key="${key}"] .new`).forEach(n => n.remove()) }
+  try {
+    const info = await tmdb(`/${type}/${id}`, {append_to_response: "videos,watch/providers", include_video_language: "de,en,null"}, 6*H);
+    if (!ITEMS.has(key)) ITEMS.set(key, {key, type, id: info.id, title: titleOf(info), poster: info.poster_path, year: yearOf(info)});
+    const all = info["watch/providers"]?.results || {};
+    const r = all[S.country];
+    const groups = r ? GROUPS.filter(([g]) => r[g]?.length).map(([g, label]) => `
+      <div class="group"><p class="label">${label}</p><div class="providers">
+      ${[...r[g]].sort((a,b) => a.display_priority - b.display_priority).map(p => `
+        <a class="prov${S.mine.includes(p.provider_id) ? " mine" : ""}" href="${esc(r.link)}" target="_blank" rel="noopener">
+          <img src="${IMG}w92${p.logo_path}" alt="">${esc(p.provider_name)}${S.mine.includes(p.provider_id) ? " · dein Dienst" : ""}</a>`).join("")}
+      </div></div>`).join("") : "";
+    const vids = (info.videos?.results || []).filter(v => v.site === "YouTube");
+    const trailer = vids.find(v => v.type === "Trailer" && v.iso_639_1 === "de") || vids.find(v => v.type === "Trailer") || vids[0];
+    const runtime = info.runtime ? info.runtime + " Min." : info.number_of_seasons ? info.number_of_seasons + (info.number_of_seasons > 1 ? " Staffeln" : " Staffel") : "";
+    const others = S.compare.filter(c => c !== S.country);
+    const cmp = others.map(c => {
+      const x = all[c], flat = flatOf(x);
+      const uniq = [...new Map(flat.map(p => [p.provider_id, p])).values()];
+      const cell = uniq.length ? uniq.slice(0,6).map(p => `<img src="${IMG}w92${p.logo_path}" alt="${esc(p.provider_name)}" title="${esc(p.provider_name)}">`).join("")
+        : x && ((x.rent||[]).length || (x.buy||[]).length) ? "Leihen oder kaufen" : "Nicht verfügbar";
+      return `<tr><td>${COUNTRIES[c]}</td><td>${cell}</td></tr>`;
+    }).join("");
+    const saved = isSaved(key);
+    panel.innerHTML = `
+      <button class="close" type="button" data-close>Schliessen</button>
+      <div class="head">
+        <span class="poster" style="${info.poster_path ? `background-image:url(${IMG}w342${info.poster_path})` : ""}"></span>
+        <div><h2>${esc(titleOf(info))}</h2>
+          <p>${[type === "tv" ? "Serie" : "Film", yearOf(info), runtime].filter(Boolean).join(" · ")}</p>
+          <p>${(info.genres || []).map(g => g.name).slice(0,3).join(", ")}</p>
+          ${info.vote_average ? `<p>TMDB ${info.vote_average.toFixed(1).replace(".", ",")} / 10</p>` : ""}
+        </div>
+      </div>
+      <div class="actions">
+        <button type="button" class="${saved ? "" : "primary"}" data-watch="${key}">${saved ? "Gemerkt" : "Merken"}</button>
+        ${trailer ? `<a href="https://www.youtube.com/watch?v=${esc(trailer.key)}" target="_blank" rel="noopener">Trailer ansehen</a>` : ""}
+        ${r?.link ? `<a href="${esc(r.link)}" target="_blank" rel="noopener">Alle Angebote</a>` : ""}
+      </div>
+      ${info.overview ? `<p class="overview">${esc(info.overview)}</p>` : ""}
+      <p class="label" style="color:var(--fg)">Verfügbar in ${COUNTRIES[S.country]}</p>
+      ${groups || `<p class="empty">Derzeit bei keinem Anbieter in ${COUNTRIES[S.country]} verfügbar.</p>`}
+      ${cmp ? `<p class="label" style="color:var(--fg);margin-top:22px">Andere Länder (Abo)</p><table class="compare"><tbody>${cmp}</tbody></table>` : ""}`;
+    panel.querySelector("[data-close]").focus();
+  } catch(e){
+    panel.innerHTML = `<button class="close" type="button" data-close>Schliessen</button><p class="status">${esc(e.message)}</p>`;
+  }
+}
+function closeDetail(){ $("sheet").hidden = true }
+$("sheet").addEventListener("click", e => {
+  if (e.target.id === "sheet" || e.target.closest("[data-close]")) closeDetail();
+  const wb = e.target.closest("[data-watch]");
+  if (wb){ toggleWatch(wb.dataset.watch); wb.classList.toggle("primary", !isSaved(wb.dataset.watch)) }
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDetail() });
+document.addEventListener("click", e => {
+  const card = e.target.closest(".card"); if (!card) return;
+  if (e.target.closest(".save")) toggleWatch(card.dataset.key);
+  else if (e.target.closest(".hit")) openDetail(card.dataset.type, card.dataset.id);
+});
+
+/* ---------- Einstellungen ---------- */
+let pvShowAll = false;
+async function renderSettings(){
+  $("a-info").textContent = S.proxy ? `Verbunden über Proxy: ${S.proxy}` : "Verbunden mit deinem eigenen API-Schlüssel (nur in diesem Browser gespeichert).";
+  $("proxyInput").value = S.proxy;
+  $("cc-grid").innerHTML = Object.entries(COUNTRIES).filter(([c]) => c !== S.country).map(([c,n]) =>
+    `<label class="cc"><input type="checkbox" value="${c}" ${S.compare.includes(c) ? "checked" : ""}> ${n}</label>`).join("");
+  renderNotify();
+  try {
+    const list = await providerList();
+    const shown = pvShowAll ? list : list.filter((p,i) => i < 24 || S.mine.includes(p.provider_id));
+    $("pv-grid").innerHTML = shown.map(p => `<button type="button" class="pv" data-pv="${p.provider_id}" aria-pressed="${S.mine.includes(p.provider_id)}">
+      <img src="${IMG}w92${p.logo_path}" alt="">${esc(p.provider_name)}</button>`).join("");
+    $("pv-all").hidden = pvShowAll || list.length <= shown.length;
+  } catch(e){ $("pv-grid").innerHTML = `<p class="empty">${esc(e.message)}</p>` }
+}
+$("pv-grid").addEventListener("click", e => {
+  const b = e.target.closest("[data-pv]"); if (!b) return;
+  const id = +b.dataset.pv, i = S.mine.indexOf(id);
+  i >= 0 ? S.mine.splice(i, 1) : S.mine.push(id);
+  b.setAttribute("aria-pressed", i < 0);
+  save("mine"); D.dirty = true; fillFilters();
+});
+$("pv-all").addEventListener("click", () => { pvShowAll = true; renderSettings() });
+$("cc-grid").addEventListener("change", e => {
+  S.compare = [...$("cc-grid").querySelectorAll("input:checked")].map(i => i.value); save("compare");
+});
+function renderNotify(){
+  if (!("Notification" in window)){ $("n-btn").hidden = true; $("n-status").textContent = "Dieser Browser unterstützt keine Mitteilungen. Auf dem iPhone: zuerst zum Home-Bildschirm hinzufügen."; return }
+  const p = Notification.permission;
+  $("n-btn").hidden = p !== "default";
+  $("n-status").textContent = p === "granted" ? "Mitteilungen sind aktiv." : p === "denied" ? "Mitteilungen sind im Browser blockiert. Du kannst sie in den Website-Einstellungen freigeben." : "";
+}
+$("n-btn").addEventListener("click", async () => {
+  try { await Notification.requestPermission() } catch(e){}
+  renderNotify();
+  notify("Streamfinder", "Mitteilungen sind eingerichtet.");
+});
+async function saveAuth(key, proxy, statusEl){
+  const old = {key: S.key, proxy: S.proxy};
+  S.key = key; S.proxy = proxy;
+  statusEl.textContent = "Prüfe Zugang …";
+  try {
+    await tmdb("/configuration", {}, 0);
+    save("key"); save("proxy"); clearCache();
+    statusEl.textContent = "Gespeichert.";
+    D.dirty = true; await fillFilters();
+    location.hash = "entdecken"; route(); checkWatch();
+  } catch(e){ S.key = old.key; S.proxy = old.proxy; statusEl.textContent = e.message }
+}
+$("setupForm").addEventListener("submit", e => { e.preventDefault(); const k = $("setupKey").value.trim(); if (k) saveAuth(k, "", $("setupStatus")) });
+$("setupProxyForm").addEventListener("submit", e => { e.preventDefault(); const p = $("setupProxy").value.trim(); if (p) saveAuth("", p, $("setupStatus")) });
+$("keyForm").addEventListener("submit", e => { e.preventDefault(); const k = $("keyInput").value.trim(); if (k) saveAuth(k, "", $("a-status")) });
+$("proxyForm").addEventListener("submit", e => { e.preventDefault(); saveAuth($("proxyInput").value.trim() ? "" : S.key, $("proxyInput").value.trim(), $("a-status")) });
+$("clearCache").addEventListener("click", () => { clearCache(); $("c-status").textContent = "Zwischenspeicher geleert." });
+$("logout").addEventListener("click", () => { S.key = ""; S.proxy = ""; save("key"); save("proxy"); clearCache(); route() });
+
+/* ---------- Land ---------- */
+for (const [c,n] of Object.entries(COUNTRIES)) $("country").add(new Option(n, c, false, c === S.country));
+$("country").addEventListener("change", async e => {
+  S.country = e.target.value; save("country");
+  D.dirty = true; await fillFilters(); route(); checkWatch();
+});
+
+/* ---------- Start ---------- */
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
+updateBadge();
+(async () => {
+  if (hasAuth()) await fillFilters();
+  route();
+  if (hasAuth()) checkWatch();
+})();
+</script>
+</body>
+</html>

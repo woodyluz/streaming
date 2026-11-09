@@ -1,0 +1,21 @@
+// Cloudflare-Konfiguration für Streamfinder
+// Ein Worker liefert die Seite aus (Ordner public/) und ist gleichzeitig Proxy, Sync und Push.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "streaming",
+  "main": "worker/worker.js",
+  "compatibility_date": "2026-11-01",
+  "observability": { "enabled": true },
+
+  // Die Seite. Alles, was keine Datei ist (/3/, /batch/, /sa/, /omdb, /api/), geht an den Worker.
+  "assets": { "directory": "./public" },
+
+  // Speicher für Sync und Push. Cloudflare legt ihn beim ersten Deploy selbst an.
+  "kv_namespaces": [ { "binding": "SF_KV" } ],
+
+  // Täglicher Check um 07:00 UTC (08:00 Uhr Winterzeit, 09:00 Uhr Sommerzeit)
+  "triggers": { "crons": ["0 7 * * *"] },
+
+  // Variablen aus dem Dashboard bei jedem Deploy behalten
+  "keep_vars": true
+}

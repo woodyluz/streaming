@@ -1,0 +1,33 @@
+# Prüft bei jedem Update automatisch, ob Streamfinder noch funktioniert.
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Abhängigkeiten installieren
+        run: npm ci
+      - name: Unit-Tests (Logik und Worker)
+        run: npm run test:unit
+      - name: Browser installieren
+        run: npx playwright install --with-deps chromium
+      - name: Ende-zu-Ende-Tests im Browser
+        run: npm run test:e2e
+      - name: Testbericht bei Fehlern aufheben
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-ergebnisse
+          path: test-results/
+          retention-days: 7

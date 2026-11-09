@@ -146,3 +146,42 @@ test("Sterne, Notiz, Jahresrückblick, Kino und Sicherung", async ({page}) => {
   await page.locator("[data-list='__seen']").click();
   await expect(page.locator("#l-grid .card")).toHaveCount(1);
 });
+
+test("Gemeinsame Liste: Gäste ohne Passwort fügen hinzu und entfernen, sehen keine anderen Listen", async ({browser}) => {
+  const me = await (await browser.newContext()).newPage(), guest = await (await browser.newContext()).newPage();
+  for (const p of [me, guest]) p.on("pageerror", e => errors.push(e.message));
+  await me.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await connect(me);
+  await saveSome(me, [0, 1]);
+  await me.goto("/#listen");
+  await me.locator("#l-add").click(); await me.fill("#l-name", "Privat"); await me.locator("#l-form button[type=submit]").click();
+  await me.locator("[data-list='main']").click();
+  await me.locator("#l-cbstart").click();
+  await expect(me.locator("#l-collab")).toContainText("Gemeinsame Liste");
+  const url = await me.locator("#l-cblink").inputValue();
+  expect(url).toMatch(/#gemeinsam-\w{12}$/);
+
+  await guest.goto(url.replace(/^https?:\/\/[^/]+/, ""));
+  await expect(guest).toHaveURL(/#listen$/);
+  await expect(guest.locator("#l-grid .card")).toHaveCount(2);
+  await expect(guest.locator("#l-chips")).not.toContainText("Privat");
+  await expect(guest.locator("#l-collab")).toContainText("einfach aufs Lesezeichen");
+  // Hinzufügen aus der ganzen Filmauswahl
+  await guest.goto("/#entdecken");
+  await expect(guest.locator("#d-status")).toContainText("Filme");
+  await guest.locator("#d-grid .card .save").nth(5).click();
+  await expect(guest.locator("#toast")).toContainText("Zu „Merkliste“ hinzugefügt");
+  // Entfernen
+  await guest.goto("/#listen");
+  await expect(guest.locator("#l-grid .card")).toHaveCount(3);
+  await guest.locator("#l-grid .card[data-id='1'] .save").click();
+  await expect(guest.locator("#l-grid .card")).toHaveCount(2);
+
+  // Besitzer sieht die Änderungen
+  await me.goto("/#entdecken");
+  await me.goto("/#listen");
+  await expect(me.locator("#l-grid .card")).toHaveCount(2);
+  await expect(me.locator("#l-grid .card[data-id='6']")).toHaveCount(1);
+  await me.locator("#l-cbstop").click();
+  await expect(me.locator("#l-collab")).toBeHidden();
+});

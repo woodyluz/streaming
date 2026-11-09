@@ -1,10 +1,12 @@
 // Listen: wechseln, anlegen, umbenennen, löschen, sortieren, filtern, exportieren
-import { S, P, save, on } from "../state.js";
+import { S, P, save, on, touch } from "../state.js";
 import { COUNTRIES } from "../constants.js";
 import { $, esc, fmtDate, pool, toast, download } from "../util.js";
 import { titleFull } from "../api.js";
 import { newList, renameList, deleteList, listItems, genreMap, backfill } from "../data.js";
 import { shareList, unshareList, sharedId } from "./shared.js";
+import { startCollab, stopCollab, shareLink, collabLink, pull, watch } from "./collab.js";
+import { syncReady } from "../sync.js";
 import { cardHTML, decorate } from "../cards.js";
 import { toCSV } from "../importers.js";
 import { register, current } from "../router.js";
@@ -43,9 +45,23 @@ async function renderLists(){
     + `<button type="button" data-list="__seen" aria-pressed="${cur() === "__seen"}">Gesehen<span>${seenN}</span></button>`
     + `<button type="button" id="l-add">+ Neue Liste</button>`;
   const list = pd.lists.find(l => l.id === cur());
-  $("l-tools").innerHTML = (list ? `<button type="button" id="l-rename">Umbenennen</button>${pd.lists.length > 1 ? `<button type="button" id="l-delete">Liste löschen</button>` : ""}
+  const guest = !!list?.collab && !list.own;
+  // Gemeinsame Liste: Hinweis, Link, Abgleich
+  const cbox = $("l-collab");
+  cbox.hidden = !list?.collab;
+  if (list?.collab){
+    cbox.innerHTML = list.gone
+      ? `Diese gemeinsame Liste wird nicht mehr geteilt. Du siehst den letzten Stand.`
+      : `<b>Gemeinsame Liste.</b> Alle mit dem Link können Titel hinzufügen und entfernen, ohne Namen. ${guest ? "Weitere Titel findest du unter Entdecken, Top 10 oder mit der Suche: einfach aufs Lesezeichen tippen." : "Gäste sehen nur diese Liste, nie deine anderen."}
+        <div class="linkbox"><label class="vh" for="l-cblink">Link zur gemeinsamen Liste</label><input id="l-cblink" type="text" readonly value="${esc(collabLink(list))}"><button type="button" id="l-cbshare">Link teilen</button></div>`;
+    if (!list.gone) pull(list).then(changedNow => { if (changedNow && current() === "listen") renderLists() });
+    watch(list);
+  }
+  $("l-tools").innerHTML = (list ? (guest ? `<button type="button" id="l-leave">Liste von diesem Gerät entfernen</button>` : `<button type="button" id="l-rename">Umbenennen</button>${pd.lists.length > 1 ? `<button type="button" id="l-delete">Liste löschen</button>` : ""}
+      ${list.collab ? `<button type="button" id="l-cbstop">Gemeinsames Bearbeiten beenden</button>` : syncReady() ? `<button type="button" id="l-cbstart">Gemeinsam bearbeiten</button>` : ""}`)
+    + (guest ? "" : `
       <button type="button" id="l-share">${sharedId(list.id) ? "Geteilten Link aktualisieren" : "Liste teilen"}</button>${sharedId(list.id) ? `<button type="button" id="l-unshare">Nicht mehr teilen</button>` : ""}
-      ${list.items.length >= 2 ? `<button type="button" data-vote="l:${list.id}">Filmabend aus dieser Liste</button>` : ""}` : "")
+      ${list.items.length >= 2 ? `<button type="button" data-vote="l:${list.id}">Filmabend aus dieser Liste</button>` : ""}`) : "")
     + `<button type="button" data-import>Importieren</button><button type="button" id="l-export">Als CSV exportieren</button>`;
   $("l-form").hidden = !mode; $("l-confirm").hidden = true;
   fillGenreFilter();
@@ -108,6 +124,13 @@ $("l-tools").addEventListener("click", e => {
   if (e.target.id === "l-export") return exportCSV();
   if (!list) return;
   if (e.target.id === "l-share") return shareList(list.id).then(() => renderLists());
+  if (e.target.id === "l-cbstart") return startCollab(list).then(() => renderLists()).catch(err => toast(err.message));
+  if (e.target.id === "l-cbstop") return stopCollab(list).then(() => renderLists());
+  if (e.target.id === "l-leave"){
+    const pd = P(); pd.tomb.lists[list.id] = Date.now(); pd.lists = pd.lists.filter(l => l.id !== list.id);
+    if (!pd.lists.length) pd.lists.push({id: "main", name: "Merkliste", nt: 0, items: []});
+    setCur(pd.lists[0].id); touch(); toast("Liste von diesem Gerät entfernt. Mit dem Link kannst du sie jederzeit wieder öffnen."); return renderLists();
+  }
   if (e.target.id === "l-unshare") return unshareList(list.id).then(() => renderLists());
   if (e.target.id === "l-rename"){ mode = "rename"; $("l-form").hidden = false; $("l-name").value = list.name; $("l-name").focus() }
   if (e.target.id === "l-delete"){
@@ -155,3 +178,8 @@ export function updateBadge(){
 on("saved", () => { updateBadge(); if (current() === "listen") renderLists() });
 on("profile", updateBadge);
 on("backfilled", () => { if (current() === "listen") renderLists() });
+on("collabChanged", () => { if (current() === "listen") renderLists() });
+$("l-collab").addEventListener("click", e => {
+  if (e.target.id !== "l-cbshare") return;
+  const list = P().lists.find(l => l.id === cur()); if (list?.collab) shareLink(list);
+});

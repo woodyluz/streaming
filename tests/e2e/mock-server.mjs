@@ -73,7 +73,7 @@ const SA_CHANGES = {changes: [{showId: "s1", service: {id: "netflix", name: "Net
   shows: {s1: {tmdbId: "movie/4", title: "Film 4", releaseYear: 2024, imageSet: {}, streamingOptions: {ch: [{service: {id: "netflix"}, audios: [{language: "deu"}]}]}},
     s2: {tmdbId: "tv/6", title: "Serie 6", firstAirYear: 2023, imageSet: {}, streamingOptions: {ch: [{service: {id: "netflix"}, audios: [{language: "eng"}]}]}}}};
 
-let synced = null, votes = {}, shares = {}, backups = {};
+let synced = null, votes = {}, shares = {}, backups = {}, collabs = {};
 const rid = () => Math.random().toString(36).slice(2, 7) + Math.random().toString(36).slice(2, 7);
 const readBody = async req => { let b = ""; for await (const c of req) b += c; return b ? JSON.parse(b) : null };
 const SECRET = "geheim";
@@ -84,7 +84,7 @@ http.createServer(async (req, res) => {
   const authed = req.headers.authorization === "Bearer " + SECRET;
   try {
     if (p === "/config.js"){ res.writeHead(200, {"Content-Type": "text/javascript"}); return res.end("window.STREAMFINDER_CONFIG={proxy:location.origin}") }
-    if (p === "/__reset"){ synced = null; votes = {}; shares = {}; backups = {}; return json(res, {ok: true}) }
+    if (p === "/__reset"){ synced = null; votes = {}; shares = {}; backups = {}; collabs = {}; return json(res, {ok: true}) }
     if (p.startsWith("/3/")){ const d = tmdb(p.slice(2), url.searchParams); return d ? json(res, d) : json(res, {status_message: "nicht gefunden"}, 404) }
     if (p === "/batch/providers"){
       const out = {};
@@ -98,6 +98,14 @@ http.createServer(async (req, res) => {
     if ((m = p.match(/^\/api\/vote\/(\w{10})\/p\/(\w+)$/)) && req.method === "PUT"){ const b = await readBody(req); votes[m[1]].parts[m[2]] = {...b, pid: m[2]}; return json(res, {ok: true}) }
     if ((m = p.match(/^\/api\/share\/(\w{10})$/)) && req.method === "GET") return shares[m[1]] ? json(res, shares[m[1]]) : json(res, "weg", 404);
     if (p === "/api/mood") return json(res, "KI ist nicht eingerichtet", 501);
+    if ((m = p.match(/^\/api\/collab\/(\w{12})$/)) && req.method === "GET") return collabs[m[1]] ? json(res, collabs[m[1]]) : json(res, "weg", 404);
+    if ((m = p.match(/^\/api\/collab\/(\w{12})\/op$/)) && req.method === "POST"){
+      const d = collabs[m[1]]; if (!d) return json(res, "weg", 404);
+      const b = await readBody(req);
+      if (b.op === "add" && !d.items.some(i => i.key === b.item.key)) d.items.unshift({...b.item, type: b.item.key.split(":")[0], id: +b.item.key.split(":")[1], added: Date.now()});
+      if (b.op === "remove") d.items = d.items.filter(i => i.key !== b.key);
+      d.v++; d.updated = Date.now(); return json(res, d);
+    }
     if (p.startsWith("/api/")){
       if (!authed) return json(res, "Falsches Sync-Passwort", 401);
       if (p === "/api/vote" && req.method === "POST"){ const b = await readBody(req); const id = rid(); votes[id] = {doc: {id, title: b.title, host: b.host, items: b.items, closed: false}, parts: {}}; return json(res, {id}) }
@@ -105,6 +113,8 @@ http.createServer(async (req, res) => {
       if (p === "/api/backups" && req.method === "POST"){ const id = new Date().toISOString().slice(0, 19); backups[id] = JSON.parse(JSON.stringify(synced)); return json(res, {id}) }
       if (p === "/api/backups" && req.method === "GET") return json(res, Object.keys(backups).sort().reverse());
       if ((m = p.match(/^\/api\/backups\/(.+)$/))) return json(res, backups[decodeURIComponent(m[1])]);
+      if (p === "/api/collab" && req.method === "POST"){ const b = await readBody(req); const id = rid() + "ab"; collabs[id] = {id, title: b.title, items: b.items.map(i => ({...i, type: i.key.split(":")[0], id: +i.key.split(":")[1], added: Date.now()})), v: 1, updated: Date.now()}; return json(res, collabs[id]) }
+      if ((m = p.match(/^\/api\/collab\/(\w{12})$/)) && req.method === "DELETE"){ delete collabs[m[1]]; return json(res, {ok: true}) }
       if (p.startsWith("/api/trakt")) return json(res, "Trakt ist nicht eingerichtet", 501);
       if (p === "/api/data" && req.method === "GET") return json(res, synced || {});
       if (p === "/api/data" && req.method === "PUT"){ let b = ""; for await (const c of req) b += c; synced = JSON.parse(b); return json(res, {ok: true}) }

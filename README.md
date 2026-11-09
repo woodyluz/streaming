@@ -29,6 +29,9 @@ und OMDb (IMDb, Rotten Tomatoes, Metacritic).
 - **Filmabend**: Abstimmung mit Link für Freunde und Familie, alle wischen ja oder nein, der erste gemeinsame Treffer gewinnt
 - **Wonach ist dir?** (Reiter *Für dich*): Suche in eigenen Worten, z. B. „etwas Spannendes unter 2 Stunden, nicht zu brutal“
 - **Listen teilen** als Leselink, den jede Person ohne Konto öffnen kann
+- **Gemeinsam bearbeiten**: Unter *Listen → Gemeinsam bearbeiten* bekommst du einen Link. Alle damit können anonym Titel hinzufügen
+  und entfernen, auch ohne Sync-Passwort. Gäste sehen nur diese eine Liste und die ganze Filmauswahl, nie deine anderen Listen.
+  *Gemeinsames Bearbeiten beenden* macht den Link ungültig
 - **Sterne und Notizen** statt nur „Gefällt mir“, **Jahresrückblick** in der Statistik
 - **Preiswächter**: meldet, wenn ein Titel günstiger wird oder in deinem Abo landet
 - **Jetzt im Kino** mit Link zu Vorstellungen in deiner Stadt

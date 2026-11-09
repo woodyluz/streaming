@@ -2,8 +2,8 @@
 import { hasAuth } from "./state.js";
 import { $ } from "./util.js";
 
-export const VIEWS = ["setup", "entdecken", "suche", "neu", "kalender", "top", "fuerdich", "listen", "planer", "statistik", "person", "abstimmen", "liste", "einstellungen"];
-const SPECIAL = ["setup", "person", "abstimmen", "liste"];
+export const VIEWS = ["setup", "entdecken", "suche", "neu", "kalender", "top", "fuerdich", "listen", "planer", "statistik", "person", "abstimmen", "liste", "gemeinsam", "einstellungen"];
+const SPECIAL = ["setup", "person", "abstimmen", "liste", "gemeinsam"];
 const views = {};
 let cur = "", hooks = {};
 export const current = () => cur;
@@ -18,6 +18,8 @@ export function show(v){
 }
 export function route(){
   let h = decodeURIComponent(location.hash.slice(1));
+  const cb = h.match(/^gemeinsam-([A-Za-z0-9]{12})$/);
+  if (cb){ hooks.closeDetail?.(true); show("gemeinsam"); views.gemeinsam?.(cb[1]); return }
   const vt = h.match(/^abstimmen-([A-Za-z0-9]{10})$/), sl = h.match(/^liste-([A-Za-z0-9]{10})$/);
   if (vt || sl){
     hooks.closeDetail?.(true);

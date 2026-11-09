@@ -39,8 +39,8 @@ export function mergeProfile(Lin, Rin, now = Date.now()){
   for (const l of [...L.lists, ...R.lists]){
     if (T.lists[l.id]) continue;
     const cur = byId.get(l.id);
-    if (!cur){ byId.set(l.id, {id: l.id, name: l.name, nt: l.nt || 0, items: [...(l.items || [])]}); continue }
-    if (newer(l.nt, cur.nt)){ cur.name = l.name; cur.nt = l.nt }
+    if (!cur){ byId.set(l.id, {id: l.id, name: l.name, nt: l.nt || 0, items: [...(l.items || [])], ...(l.collab ? {collab: l.collab, own: !!l.own} : {})}); continue }
+    if (newer(l.nt, cur.nt)){ cur.name = l.name; cur.nt = l.nt; if (l.collab){ cur.collab = l.collab; cur.own = !!l.own } else { delete cur.collab; delete cur.own } }
     const m = new Map(cur.items.map(i => [i.key, i]));
     for (const i of l.items || []){ const p = m.get(i.key); if (!p || newer(i.added, p.added)) m.set(i.key, i) }
     cur.items = [...m.values()];

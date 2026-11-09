@@ -82,6 +82,7 @@ export function setInList(listId, key, on){
   }
   if (!on && has){ l.items = l.items.filter(i => i.key !== key); pd.tomb.items[l.id + "|" + key] = Date.now() }
   touch(); emit("saved", key);
+  if (l.collab && on !== has) emit("collabOp", {list: l, op: on ? "add" : "remove", item: l.items.find(i => i.key === key) || ITEMS.get(key), key});
 }
 export function newList(name){
   const l = {id: "l" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: name.trim().slice(0, 40) || "Neue Liste", nt: Date.now(), items: []};
@@ -95,6 +96,8 @@ export function renameList(id, name){
 export function deleteList(id){
   const pd = P();
   if (pd.lists.length < 2) return;
+  const l = pd.lists.find(x => x.id === id);
+  if (l?.collab) emit("collabLeave", l);
   pd.tomb.lists[id] = Date.now();
   pd.lists = pd.lists.filter(l => l.id !== id);
   touch();

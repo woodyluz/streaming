@@ -164,6 +164,28 @@ async function handleApi(req, url, env, reply, hasSecret, ownPage) {
     const doc = await kv.get("share:" + m[1], "json");
     return doc ? reply(doc, 200, { "Cache-Control": "no-store" }) : reply("Liste nicht gefunden", 404);
   }
+  // Gemeinsame Listen: lesen und bearbeiten für alle mit Link, anonym
+  if ((m = p.match(/^\/api\/collab\/([A-Za-z0-9]{12})$/)) && req.method === "GET") {
+    const doc = await kv.get("collab:" + m[1], "json");
+    return doc ? reply(doc, 200, { "Cache-Control": "no-store" }) : reply("Liste nicht gefunden", 404);
+  }
+  if ((m = p.match(/^\/api\/collab\/([A-Za-z0-9]{12})\/op$/)) && req.method === "POST") {
+    if (!ownPage && !hasSecret) return reply("Nur über die eigene Seite", 403);
+    const doc = await kv.get("collab:" + m[1], "json");
+    if (!doc) return reply("Liste nicht gefunden", 404);
+    const b = await req.json().catch(() => null);
+    if (b?.op === "add") {
+      const it = cleanItem(b.item);
+      if (!it) return reply("Ungültiger Titel", 400);
+      if (doc.items.length >= 500) return reply("Die Liste ist voll (500 Titel)", 409);
+      if (!doc.items.some(i => i.key === it.key)) doc.items.unshift({ ...it, added: Date.now() });
+    } else if (b?.op === "remove" && typeof b.key === "string") {
+      doc.items = doc.items.filter(i => i.key !== b.key);
+    } else return reply("Unbekannte Änderung", 400);
+    doc.updated = Date.now(); doc.v = (doc.v || 0) + 1;
+    await kv.put("collab:" + m[1], JSON.stringify(doc));
+    return reply(doc);
+  }
   if (p === "/api/mood" && req.method === "POST") {
     if (!ownPage && !hasSecret) return reply("Nur über die eigene Seite", 403);
     if (!env.ANTHROPIC_API_KEY) return reply("KI ist nicht eingerichtet", 501);
@@ -235,6 +257,20 @@ async function handleApi(req, url, env, reply, hasSecret, ownPage) {
     return reply({ ok: true });
   }
 
+  // Gemeinsame Listen anlegen, ersetzen, beenden (nur Besitzer)
+  if (p === "/api/collab" && req.method === "POST") {
+    const b = await req.json().catch(() => null);
+    const id = b?.id && /^[A-Za-z0-9]{12}$/.test(b.id) ? b.id : randomId(12);
+    const items = (Array.isArray(b?.items) ? b.items : []).slice(0, 500).map(cleanItem).filter(Boolean).map(i => ({ ...i, added: Date.now() }));
+    const doc = { id, title: String(b?.title || "Gemeinsame Liste").slice(0, 60), items, updated: Date.now(), v: 1 };
+    await kv.put("collab:" + id, JSON.stringify(doc));
+    return reply(doc);
+  }
+  if ((m = p.match(/^\/api\/collab\/([A-Za-z0-9]{12})$/)) && req.method === "DELETE") {
+    await kv.delete("collab:" + m[1]);
+    return reply({ ok: true });
+  }
+
   // Sicherungen
   if (p === "/api/backups" && req.method === "GET") {
     const keys = (await kv.list({ prefix: "backup:" })).keys.map(k => k.name.slice(7)).sort().reverse();
@@ -253,6 +289,11 @@ async function handleApi(req, url, env, reply, hasSecret, ownPage) {
 }
 
 const VOTE_TTL = 7 * 86400;
+function cleanItem(i) {
+  if (!i || !/^(movie|tv):\d{1,9}$/.test(i.key)) return null;
+  return { key: i.key, type: i.key.split(":")[0], id: +i.key.split(":")[1], title: String(i.title || "").slice(0, 120),
+    poster: typeof i.poster === "string" && /^\/[\w.-]{1,80}$/.test(i.poster) ? i.poster : null, year: String(i.year || "").replace(/\D/g, "").slice(0, 4) };
+}
 function randomId(n) {
   const a = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789", b = crypto.getRandomValues(new Uint8Array(n));
   return [...b].map(x => a[x % a.length]).join("");

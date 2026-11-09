@@ -3,6 +3,7 @@ import { P } from "./state.js";
 import { $, esc, toast } from "./util.js";
 import { ITEMS, inList, isSaved, setInList, newList } from "./data.js";
 import { openModal, closeModal } from "./a11y.js";
+import { guestTarget } from "./views/collab.js";
 
 let pickKey = null;
 function draw(){
@@ -15,6 +16,13 @@ export function openPicker(key){
   openModal($("picker"), {focus: () => $("pick-lists").querySelector("input") || $("pick-done")});
 }
 export function onSave(key){
+  const g = guestTarget();
+  if (g){
+    const on = !g.items.some(i => i.key === key);
+    setInList(g.id, key, on);
+    toast(on ? `Zu „${g.name}“ hinzugefügt` : `Aus „${g.name}“ entfernt`);
+    return;
+  }
   const lists = P().lists;
   if (lists.length === 1){
     setInList(lists[0].id, key, !isSaved(key));

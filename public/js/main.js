@@ -11,6 +11,7 @@ import { traktImport } from "./trakt.js";
 import "./views/planner.js";
 import "./views/vote.js";
 import "./views/shared.js";
+import "./views/collab.js";
 import { syncNow, syncReady, writeMeta, notify } from "./sync.js";
 import { onSave, openPicker } from "./picker.js";
 import { route, rerender, setHooks } from "./router.js";

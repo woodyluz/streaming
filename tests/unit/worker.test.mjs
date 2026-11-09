@@ -154,3 +154,23 @@ test("Preiswächter meldet günstigere Preise", async () => {
   const inbox = await (await call("/api/inbox?after=0", A)).json();
   assert.ok(inbox.some(n => n.title === "Günstiger" && n.body === "Dune zum Leihen jetzt 2.90 CHF statt 4.90 CHF"));
 });
+
+test("Gemeinsame Liste: Besitzer legt an, Gäste fügen hinzu und entfernen anonym", async () => {
+  assert.equal((await json("/api/collab", OWN, "POST", {title: "Familie", items: []})).status, 401);
+  const doc = await (await json("/api/collab", A, "POST", {title: "Familie", items: [{key: "movie:1", title: "Heat", poster: "/a.jpg"}, {key: "kaputt"}]})).json();
+  assert.match(doc.id, /^[A-Za-z0-9]{12}$/);
+  assert.equal(doc.items.length, 1);
+  const guest = {Referer: BASE + "/#gemeinsam-" + doc.id};
+  assert.equal((await json(`/api/collab/${doc.id}/op`, {Origin: "https://boese.example", "Sec-Fetch-Site": "cross-site"}, "POST", {op: "add", item: {key: "movie:2"}})).status, 403);
+  let d = await (await json(`/api/collab/${doc.id}/op`, guest, "POST", {op: "add", item: {key: "tv:5", title: "Atypical", poster: "javascript:alert(1)", year: "2017x", by: "Anna"}})).json();
+  assert.deepEqual(d.items[0], {key: "tv:5", type: "tv", id: 5, title: "Atypical", poster: null, year: "2017", added: d.items[0].added});
+  assert.equal(d.items.length, 2);
+  d = await (await json(`/api/collab/${doc.id}/op`, guest, "POST", {op: "add", item: {key: "tv:5", title: "doppelt"}})).json();
+  assert.equal(d.items.length, 2);
+  d = await (await json(`/api/collab/${doc.id}/op`, guest, "POST", {op: "remove", key: "movie:1"})).json();
+  assert.deepEqual(d.items.map(i => i.key), ["tv:5"]);
+  assert.equal((await (await call("/api/collab/" + doc.id)).json()).v, 4);
+  assert.equal((await json("/api/collab/" + doc.id, guest, "DELETE")).status, 401);
+  await json("/api/collab/" + doc.id, A, "DELETE");
+  assert.equal((await call("/api/collab/" + doc.id)).status, 404);
+});

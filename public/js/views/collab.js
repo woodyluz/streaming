@@ -93,8 +93,19 @@ export function watch(list){
     if (current() !== "listen" || (S.curList[S.profile] !== list.id)){ clearInterval(timer); return }
     if (document.hidden) return;
     if (await pull(list)) emit("collabChanged");
-  }, 12000);
+  }, 8000);
 }
+
+// Alle gemeinsamen Listen abgleichen: beim Start, beim Zurückkehren in die App und nach dem Sync
+export async function pullAll(){
+  let any = false;
+  for (const l of P().lists) if (l.collab && !l.gone) any = (await pull(l)) || any;
+  if (any) emit("collabChanged");
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") pullAll() });
+on("synced", () => pullAll());
+on("profile", () => pullAll());
+setTimeout(() => pullAll(), 1500);
 // Für Gäste ohne Sync: das Lesezeichen speichert direkt in die gemeinsame Liste
 export function guestTarget(){
   if (syncReady()) return null;

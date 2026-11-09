@@ -1,7 +1,7 @@
 // Worker mit nachgebautem Speicher und Netz testen
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import worker from "../../worker/worker.js";
+import worker, { CollabList } from "../../worker/worker.js";
 
 const kvStore = new Map();
 const KV = {async get(k, t){ const v = kvStore.get(k); return v == null ? null : t === "json" ? JSON.parse(v) : v }, async put(k, v){ kvStore.set(k, v) },
@@ -173,4 +173,29 @@ test("Gemeinsame Liste: Besitzer legt an, Gäste fügen hinzu und entfernen anon
   assert.equal((await json("/api/collab/" + doc.id, guest, "DELETE")).status, 401);
   await json("/api/collab/" + doc.id, A, "DELETE");
   assert.equal((await call("/api/collab/" + doc.id)).status, 404);
+});
+
+test("Gemeinsame Liste mit Durable Object: gleichzeitige Änderungen gehen nicht verloren, alte KV-Listen werden übernommen", async () => {
+  const objs = new Map();
+  const COLLAB = {idFromName: n => n, get(n){
+    if (!objs.has(n)){ const mem = new Map(); objs.set(n, new CollabList({storage: {async get(k){ return mem.get(k) }, async put(k, v){ mem.set(k, structuredClone(v)) }, async deleteAll(){ mem.clear() }}}, {SF_KV: KV})) }
+    const o = objs.get(n);
+    return {fetch: (url, init) => o.fetch(new Request(url, init))};
+  }};
+  const env2 = {...env, COLLAB};
+  const call2 = (path, headers = {}, opt = {}) => worker.fetch(new Request(BASE + path, {...opt, headers: {"Content-Type": "application/json", ...headers}}), env2, ctx);
+  const doc = await (await call2("/api/collab", A, {method: "POST", body: JSON.stringify({title: "Familie", items: [{key: "movie:1", title: "Heat"}]})})).json();
+  const guest = {Referer: BASE + "/"};
+  // Zehn Gäste fügen gleichzeitig hinzu
+  await Promise.all(Array.from({length: 10}, (_, i) => call2(`/api/collab/${doc.id}/op`, guest, {method: "POST", body: JSON.stringify({op: "add", item: {key: "movie:" + (100 + i), title: "F" + i}})})));
+  const d = await (await call2("/api/collab/" + doc.id)).json();
+  assert.equal(d.items.length, 11);
+  assert.equal(d.v, 11);
+  // Liste aus der Zeit vor dem Durable Object
+  await KV.put("collab:ALTEliste123", JSON.stringify({id: "ALTEliste123", title: "Alt", items: [{key: "tv:5"}], v: 3}));
+  const old = await (await call2("/api/collab/ALTEliste123")).json();
+  assert.equal(old.title, "Alt");
+  await call2("/api/collab/ALTEliste123", A, {method: "DELETE"});
+  assert.equal((await call2("/api/collab/ALTEliste123")).status, 404);
+  assert.equal(await KV.get("collab:ALTEliste123"), null);
 });

@@ -166,25 +166,12 @@ async function handleApi(req, url, env, reply, hasSecret, ownPage) {
   }
   // Gemeinsame Listen: lesen und bearbeiten für alle mit Link, anonym
   if ((m = p.match(/^\/api\/collab\/([A-Za-z0-9]{12})$/)) && req.method === "GET") {
-    const doc = await kv.get("collab:" + m[1], "json");
-    return doc ? reply(doc, 200, { "Cache-Control": "no-store" }) : reply("Liste nicht gefunden", 404);
+    return relay(await collab(env, m[1], "GET"), reply);
   }
   if ((m = p.match(/^\/api\/collab\/([A-Za-z0-9]{12})\/op$/)) && req.method === "POST") {
     if (!ownPage && !hasSecret) return reply("Nur über die eigene Seite", 403);
-    const doc = await kv.get("collab:" + m[1], "json");
-    if (!doc) return reply("Liste nicht gefunden", 404);
     const b = await req.json().catch(() => null);
-    if (b?.op === "add") {
-      const it = cleanItem(b.item);
-      if (!it) return reply("Ungültiger Titel", 400);
-      if (doc.items.length >= 500) return reply("Die Liste ist voll (500 Titel)", 409);
-      if (!doc.items.some(i => i.key === it.key)) doc.items.unshift({ ...it, added: Date.now() });
-    } else if (b?.op === "remove" && typeof b.key === "string") {
-      doc.items = doc.items.filter(i => i.key !== b.key);
-    } else return reply("Unbekannte Änderung", 400);
-    doc.updated = Date.now(); doc.v = (doc.v || 0) + 1;
-    await kv.put("collab:" + m[1], JSON.stringify(doc));
-    return reply(doc);
+    return relay(await collab(env, m[1], "POST", b), reply);
   }
   if (p === "/api/mood" && req.method === "POST") {
     if (!ownPage && !hasSecret) return reply("Nur über die eigene Seite", 403);
@@ -263,12 +250,10 @@ async function handleApi(req, url, env, reply, hasSecret, ownPage) {
     const id = b?.id && /^[A-Za-z0-9]{12}$/.test(b.id) ? b.id : randomId(12);
     const items = (Array.isArray(b?.items) ? b.items : []).slice(0, 500).map(cleanItem).filter(Boolean).map(i => ({ ...i, added: Date.now() }));
     const doc = { id, title: String(b?.title || "Gemeinsame Liste").slice(0, 60), items, updated: Date.now(), v: 1 };
-    await kv.put("collab:" + id, JSON.stringify(doc));
-    return reply(doc);
+    return relay(await collab(env, id, "PUT", doc), reply);
   }
   if ((m = p.match(/^\/api\/collab\/([A-Za-z0-9]{12})$/)) && req.method === "DELETE") {
-    await kv.delete("collab:" + m[1]);
-    return reply({ ok: true });
+    return relay(await collab(env, m[1], "DELETE"), reply);
   }
 
   // Sicherungen
@@ -289,6 +274,65 @@ async function handleApi(req, url, env, reply, hasSecret, ownPage) {
 }
 
 const VOTE_TTL = 7 * 86400;
+
+/* ---------- Gemeinsame Listen: ein Durable Object pro Liste ----------
+   Alle Änderungen laufen der Reihe nach durch ein einziges Objekt und sind sofort überall sichtbar.
+   Ohne Binding COLLAB (ältere wrangler.jsonc) wird auf KV ausgewichen. */
+async function collab(env, id, method, body) {
+  if (env.COLLAB) {
+    const stub = env.COLLAB.get(env.COLLAB.idFromName(id));
+    const r = await stub.fetch("https://collab/?id=" + id, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: r.status, data: await r.json() };
+  }
+  return collabOp(id, method, body, {
+    get: () => env.SF_KV.get("collab:" + id, "json"),
+    put: d => env.SF_KV.put("collab:" + id, JSON.stringify(d)),
+    del: () => env.SF_KV.delete("collab:" + id)
+  });
+}
+const relay = (r, reply) => reply(r.data, r.status, r.status === 200 ? { "Cache-Control": "no-store" } : {});
+
+// Die eigentliche Logik, gemeinsam für Durable Object und KV
+async function collabOp(id, method, body, store) {
+  if (method === "PUT") { await store.put(body); return { status: 200, data: body } }
+  if (method === "DELETE") { await store.del(); return { status: 200, data: { ok: true } } }
+  const doc = await store.get();
+  if (!doc) return { status: 404, data: "Liste nicht gefunden" };
+  if (method === "GET") return { status: 200, data: doc };
+  if (body?.op === "add") {
+    const it = cleanItem(body.item);
+    if (!it) return { status: 400, data: "Ungültiger Titel" };
+    if (doc.items.length >= 500) return { status: 409, data: "Die Liste ist voll (500 Titel)" };
+    if (!doc.items.some(i => i.key === it.key)) doc.items.unshift({ ...it, added: Date.now() });
+  } else if (body?.op === "remove" && typeof body.key === "string") {
+    doc.items = doc.items.filter(i => i.key !== body.key);
+  } else return { status: 400, data: "Unbekannte Änderung" };
+  doc.updated = Date.now(); doc.v = (doc.v || 0) + 1;
+  await store.put(doc);
+  return { status: 200, data: doc };
+}
+
+export class CollabList {
+  constructor(state, env) { this.state = state; this.env = env }
+  async fetch(req) {
+    const id = new URL(req.url).searchParams.get("id");
+    const body = req.method === "POST" || req.method === "PUT" ? await req.json().catch(() => null) : undefined;
+    const storage = this.state.storage, env = this.env;
+    const r = await collabOp(id, req.method, body, {
+      async get() {
+        let d = await storage.get("doc");
+        if (d === undefined && env.SF_KV) {          // einmalige Übernahme aus KV (Listen von vorher)
+          d = await env.SF_KV.get("collab:" + id, "json");
+          if (d) await storage.put("doc", d);
+        }
+        return d || null;
+      },
+      put: d => storage.put("doc", d),
+      async del() { await storage.deleteAll(); if (env.SF_KV) await env.SF_KV.delete("collab:" + id) }
+    });
+    return new Response(JSON.stringify(r.data), { status: r.status, headers: { "Content-Type": "application/json" } });
+  }
+}
 function cleanItem(i) {
   if (!i || !/^(movie|tv):\d{1,9}$/.test(i.key)) return null;
   return { key: i.key, type: i.key.split(":")[0], id: +i.key.split(":")[1], title: String(i.title || "").slice(0, 120),

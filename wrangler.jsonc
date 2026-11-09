@@ -13,6 +13,10 @@
   // Speicher für Sync und Push. Cloudflare legt ihn beim ersten Deploy selbst an.
   "kv_namespaces": [ { "binding": "SF_KV" } ],
 
+  // Gemeinsame Listen: sofort und in der richtigen Reihenfolge für alle (im Gratis-Plan enthalten)
+  "durable_objects": { "bindings": [ { "name": "COLLAB", "class_name": "CollabList" } ] },
+  "migrations": [ { "tag": "v1", "new_sqlite_classes": ["CollabList"] } ],
+
   // Täglicher Check um 07:00 UTC (08:00 Uhr Winterzeit, 09:00 Uhr Sommerzeit)
   "triggers": { "crons": ["0 7 * * *"] },
 

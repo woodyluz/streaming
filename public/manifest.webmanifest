@@ -1,0 +1,17 @@
+{
+  "name": "Streamfinder",
+  "short_name": "Streamfinder",
+  "description": "Finde heraus, wo Filme und Serien gerade streamen.",
+  "start_url": "./#entdecken",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#141218",
+  "theme_color": "#d6452b",
+  "lang": "de",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

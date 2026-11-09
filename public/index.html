@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Streamfinder</title>
+<meta name="theme-color" content="#c83f26">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<script>try{var t=JSON.parse(localStorage.getItem("sf:theme")||'""');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&family=Instrument+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<a class="skip" href="#main">Zum Inhalt springen</a>
+<div class="wrap">
+  <header>
+    <a class="logo" href="#entdecken" aria-label="Streamfinder, zur Startseite">Stream<span>finder</span></a>
+    <div class="search" role="search">
+      <label class="vh" for="q">Suche nach Titel, Schauspieler oder Autor</label>
+      <input id="q" type="search" placeholder="Titel, Schauspieler oder Autor …" autocomplete="off">
+      <label class="vh" for="country">Land</label>
+      <select id="country"></select>
+      <label class="vh" for="profileSel">Profil</label>
+      <select id="profileSel" hidden></select>
+      <button class="iconbtn" id="themeBtn" type="button" aria-label="Darstellung wechseln"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg></button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs" aria-label="Bereiche">
+    <a href="#entdecken" data-v="entdecken">Entdecken</a>
+    <a href="#neu" data-v="neu">Neu &amp; bald</a>
+    <a href="#kalender" data-v="kalender">Kalender</a>
+    <a href="#top" data-v="top">Top 10</a>
+    <a href="#fuerdich" data-v="fuerdich">Für dich</a>
+    <a href="#listen" data-v="listen">Listen <span class="badge" id="badge" hidden></span></a>
+    <a href="#statistik" data-v="statistik">Statistik</a>
+    <a href="#einstellungen" data-v="einstellungen">Einstellungen</a>
+  </nav>
+
+  <main id="main" tabindex="-1">
+  <!-- Einrichtung -->
+  <section id="v-setup" hidden aria-labelledby="setup-h">
+    <div class="panelbox">
+      <h2 id="setup-h">Zugang einrichten</h2>
+      <p>Die Verfügbarkeitsdaten kommen live von TMDB (Daten von JustWatch). Du brauchst einen kostenlosen Schlüssel:</p>
+      <ol>
+        <li>Konto auf <a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener">themoviedb.org</a> anlegen</li>
+        <li>Unter <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Einstellungen → API</a> einen Schlüssel beantragen</li>
+        <li>„API-Schlüssel“ oder „Lesezugriffstoken“ hier einfügen</li>
+      </ol>
+      <form class="row" id="setupForm">
+        <label class="vh" for="setupKey">TMDB-Schlüssel</label>
+        <input id="setupKey" type="password" placeholder="API-Schlüssel oder Token" autocomplete="off">
+        <button class="primary" type="submit">Speichern</button>
+      </form>
+      <p style="margin-top:12px">Mit eigenem Cloudflare-Worker trägst du seine Adresse in <code>config.js</code> ein, dann entfällt dieser Schritt auf allen Geräten.</p>
+      <p class="status" id="setupStatus" role="status"></p>
+    </div>
+  </section>
+
+  <!-- Entdecken -->
+  <section id="v-entdecken" hidden aria-label="Entdecken">
+    <div class="filters">
+      <div class="seg" role="group" aria-label="Filme oder Serien" id="d-seg">
+        <button type="button" data-type="movie" aria-pressed="true">Filme</button>
+        <button type="button" data-type="tv" aria-pressed="false">Serien</button>
+      </div>
+      <select id="f-prov" aria-label="Anbieter"></select>
+      <select id="f-genre" aria-label="Genre"><option value="">Alle Genres</option></select>
+      <select id="f-year" aria-label="Erscheinungsjahr">
+        <option value="">Alle Jahre</option><option value="2025">ab 2025</option><option value="2020">ab 2020</option>
+        <option value="2015">ab 2015</option><option value="2010">ab 2010</option><option value="2000">ab 2000</option><option value="1990">ab 1990</option>
+      </select>
+      <select id="f-rating" aria-label="Mindestbewertung">
+        <option value="">Jede Bewertung</option><option value="6">ab 6,0</option><option value="7">ab 7,0</option><option value="8">ab 8,0</option>
+      </select>
+      <select id="f-fsk" aria-label="Altersfreigabe" class="fsk-select"></select>
+      <select id="f-sort" aria-label="Sortierung">
+        <option value="popularity.desc">Beliebt</option><option value="new">Neueste</option><option value="vote_average.desc">Beste Bewertung</option>
+      </select>
+    </div>
+    <p class="status" id="d-status" role="status"></p>
+    <div class="grid" id="d-grid"></div>
+    <button class="more" id="d-more" type="button" hidden>Mehr laden</button>
+  </section>
+
+  <!-- Suche -->
+  <section id="v-suche" hidden aria-label="Suchergebnisse">
+    <div class="filters">
+      <h2 class="label" id="s-label" style="margin:0;flex:1">Suche</h2>
+      <label class="toggle"><input type="checkbox" id="s-mine"> Nur in meinen Diensten</label>
+    </div>
+    <div id="s-people-wrap" hidden>
+      <h3 class="label">Personen</h3>
+      <div class="people" id="s-people"></div>
+      <h3 class="label">Titel</h3>
+    </div>
+    <p class="status" id="s-status" role="status"></p>
+    <div class="grid" id="s-grid"></div>
+  </section>
+
+  <!-- Neu & bald -->
+  <section id="v-neu" hidden aria-label="Neu und bald">
+    <div class="filters">
+      <label class="toggle" id="n-de-wrap"><input type="checkbox" id="n-de"> Nur mit deutscher Tonspur</label>
+    </div>
+    <div id="n-box"></div>
+  </section>
+
+  <!-- Kalender -->
+  <section id="v-kalender" hidden aria-labelledby="k-h">
+    <div class="filters" style="justify-content:space-between">
+      <div><h2 class="sec" id="k-h">Serien-Kalender</h2><p class="sub" style="margin:0">Neue Folgen der Serien, denen du folgst, und wo sie laufen.</p></div>
+      <div class="row">
+        <label class="toggle"><input type="checkbox" id="k-lists" checked> Serien aus meinen Listen</label>
+        <button type="button" id="k-ics">Als Kalender-Datei</button>
+      </div>
+    </div>
+    <p class="status" id="k-status" role="status"></p>
+    <div id="k-box"></div>
+  </section>
+
+  <!-- Top 10 -->
+  <section id="v-top" hidden aria-labelledby="t-title">
+    <div class="filters">
+      <div class="seg" role="group" aria-label="Filme oder Serien" id="t-seg">
+        <button type="button" data-type="movie" aria-pressed="true">Filme</button>
+        <button type="button" data-type="tv" aria-pressed="false">Serien</button>
+      </div>
+      <select id="t-fsk" aria-label="Altersfreigabe" class="fsk-select"></select>
+      <label class="toggle"><input type="checkbox" id="t-mine"> Nur meine Dienste</label>
+    </div>
+    <div class="chips" id="t-genres" role="group" aria-label="Genre"></div>
+    <h2 class="sec" id="t-title">Top 10</h2>
+    <p class="sub" id="t-sub"></p>
+    <div class="toplist" id="t-list" role="list"></div>
+  </section>
+
+  <!-- Für dich -->
+  <section id="v-fuerdich" hidden aria-label="Für dich">
+    <div class="pick-box">
+      <h2 class="sec">Was schaue ich heute?</h2>
+      <p class="sub">Ein zufälliger, gut bewerteter Titel aus deinen Diensten.</p>
+      <div class="filters" style="margin:0">
+        <div class="seg" role="group" aria-label="Film oder Serie" id="r-seg">
+          <button type="button" data-type="movie" aria-pressed="true">Film</button>
+          <button type="button" data-type="tv" aria-pressed="false">Serie</button>
+        </div>
+        <select id="r-genre" aria-label="Genre"><option value="">Egal welches Genre</option></select>
+        <select id="r-time" aria-label="Dauer">
+          <option value="">Egal wie lang</option><option value="100">bis 100 Minuten</option><option value="130">bis 130 Minuten</option>
+        </select>
+        <select id="r-fsk" aria-label="Altersfreigabe" class="fsk-select"></select>
+        <button class="primary" type="button" id="r-go">Vorschlag</button>
+      </div>
+      <div id="r-out" aria-live="polite"></div>
+    </div>
+    <div class="filters" style="justify-content:space-between">
+      <div><h2 class="sec">Für dich empfohlen</h2><p class="sub" style="margin:0">Aus dem, was du gesehen, gemocht und gemerkt hast. Was du nicht mochtest, wird abgewertet.</p></div>
+      <button type="button" id="e-refresh">Neu berechnen</button>
+    </div>
+    <p class="status" id="e-status" role="status"></p>
+    <div id="e-list"></div>
+  </section>
+
+  <!-- Listen -->
+  <section id="v-listen" hidden aria-label="Listen">
+    <div class="chips" id="l-chips" role="group" aria-label="Listen"></div>
+    <div class="filters" id="l-tools"></div>
+    <div class="filters">
+      <select id="l-sort" aria-label="Sortieren">
+        <option value="added">Zuletzt hinzugefügt</option><option value="avail">Verfügbarkeit</option><option value="rating">Bewertung</option>
+        <option value="runtime">Dauer, kürzeste zuerst</option><option value="year">Erscheinungsjahr, neueste zuerst</option><option value="title">Titel A–Z</option>
+      </select>
+      <select id="l-type" aria-label="Typ"><option value="">Filme und Serien</option><option value="movie">Nur Filme</option><option value="tv">Nur Serien</option></select>
+      <select id="l-genre" aria-label="Genre"><option value="">Alle Genres</option></select>
+      <label class="toggle"><input type="checkbox" id="l-mine"> Nur in meinen Diensten</label>
+    </div>
+    <form class="row" id="l-form" hidden style="margin-bottom:16px;max-width:520px">
+      <label class="vh" for="l-name">Name der Liste</label>
+      <input id="l-name" type="text" placeholder="Name der Liste" maxlength="40" autocomplete="off">
+      <button class="primary" type="submit">Speichern</button>
+      <button type="button" id="l-cancel">Abbrechen</button>
+    </form>
+    <div class="row" id="l-confirm" hidden style="margin-bottom:16px" role="alertdialog" aria-label="Löschen bestätigen"></div>
+    <p class="status" id="l-status" role="status"></p>
+    <div class="grid" id="l-grid"></div>
+  </section>
+
+  <!-- Statistik -->
+  <section id="v-statistik" hidden aria-label="Statistik">
+    <p class="status" id="st-status" role="status"></p>
+    <div id="st-box"></div>
+  </section>
+
+  <!-- Person -->
+  <section id="v-person" hidden aria-label="Person">
+    <div id="p-head"></div>
+    <div class="chips" id="p-tabs" role="group" aria-label="Rollen"></div>
+    <div class="grid" id="p-grid"></div>
+    <button class="more" id="p-more" type="button" hidden>Alle anzeigen</button>
+  </section>
+
+  <!-- Einstellungen -->
+  <section id="v-einstellungen" hidden aria-label="Einstellungen">
+    <div class="panelbox">
+      <h2>Meine Dienste</h2>
+      <p>Wähle deine Abos. Sie gelten für den ganzen Haushalt und werden überall hervorgehoben.</p>
+      <div class="pvgrid" id="pv-grid" role="group" aria-label="Streamingdienste"><p class="empty">Lade Anbieter …</p></div>
+      <button type="button" id="pv-all" style="margin-top:10px" hidden>Alle Anbieter anzeigen</button>
+    </div>
+    <div class="panelbox">
+      <h2>Profile</h2>
+      <p>Jedes Profil hat eigene Listen, Gesehen, Serien-Stand und Empfehlungen. Mit einer Altersgrenze werden Titel darüber ausgeblendet.</p>
+      <div id="pf-list"></div>
+      <form class="row" id="pf-new" style="margin-top:12px">
+        <label class="vh" for="pf-name">Name des neuen Profils</label>
+        <input id="pf-name" type="text" placeholder="Name, z. B. Kinder" maxlength="24" autocomplete="off">
+        <button type="submit">Profil anlegen</button>
+      </form>
+      <div class="row" id="pf-confirm" hidden style="margin-top:10px" role="alertdialog" aria-label="Profil löschen bestätigen"></div>
+    </div>
+    <div class="panelbox">
+      <h2>Geräte synchronisieren</h2>
+      <p id="y-info"></p>
+      <form class="row" id="y-form">
+        <label class="vh" for="y-input">Sync-Passwort</label>
+        <input id="y-input" type="password" placeholder="Sync-Passwort (SYNC_SECRET im Worker)" autocomplete="off">
+        <button class="primary" type="submit">Verbinden</button>
+      </form>
+      <div class="row" id="y-tools" hidden>
+        <button type="button" id="y-now">Jetzt synchronisieren</button>
+        <button type="button" id="y-link">Link für weiteres Gerät kopieren</button>
+        <button type="button" id="y-off">Trennen</button>
+      </div>
+      <p class="status" id="y-status" role="status" style="margin-top:10px"></p>
+    </div>
+    <div class="panelbox">
+      <h2>Mitteilungen</h2>
+      <p id="n-info"></p>
+      <div class="row">
+        <button type="button" id="n-btn">Mitteilungen erlauben</button>
+        <button type="button" id="push-btn" hidden>Push aktivieren</button>
+        <button type="button" id="push-test" hidden>Test senden</button>
+      </div>
+      <p class="status" id="n-status" role="status" style="margin-top:10px"></p>
+    </div>
+    <div class="panelbox">
+      <h2>Sichern und übertragen</h2>
+      <p>Hol deine Merklisten aus IMDb, Letterboxd oder JustWatch, oder sichere alles als Datei.</p>
+      <div class="row">
+        <button type="button" class="primary" data-import>Importieren …</button>
+        <button type="button" id="x-json">Sicherung herunterladen</button>
+        <button type="button" id="x-csv">Aktuelle Liste als CSV</button>
+      </div>
+    </div>
+    <div class="panelbox">
+      <h2>Länder vergleichen</h2>
+      <p>Diese Länder erscheinen zusätzlich in den Details, z. B. für Reisen oder VPN.</p>
+      <div class="row" id="cc-grid" role="group" aria-label="Vergleichsländer"></div>
+    </div>
+    <div class="panelbox">
+      <h2>Zugang zu TMDB</h2>
+      <p id="a-info"></p>
+      <form class="row" id="keyForm">
+        <label class="vh" for="keyInput">TMDB-Schlüssel</label>
+        <input id="keyInput" type="password" placeholder="Neuer API-Schlüssel oder Token" autocomplete="off">
+        <button type="submit">Schlüssel speichern</button>
+      </form>
+      <form class="row" id="proxyForm" style="margin-top:8px">
+        <label class="vh" for="proxyInput">Proxy-Adresse</label>
+        <input id="proxyInput" type="text" placeholder="Proxy-Adresse (optional)" autocomplete="off">
+        <button type="submit">Proxy speichern</button>
+      </form>
+      <p class="status" id="a-status" role="status" style="margin-top:10px"></p>
+    </div>
+    <div class="panelbox">
+      <h2>Direkte Links (Streaming Availability)</h2>
+      <p>Direkte Links zum Titel beim Anbieter, Preise, Sprachen, „Letzte Chance“ und „Neu in deinen Diensten“.</p>
+      <p id="sa-info"></p>
+      <form class="row" id="saForm">
+        <label class="vh" for="saInput">RapidAPI-Schlüssel</label>
+        <input id="saInput" type="password" placeholder="RapidAPI-Schlüssel" autocomplete="off">
+        <button type="submit">Speichern</button>
+        <button type="button" id="saRemove" hidden>Entfernen</button>
+      </form>
+      <p class="status" id="sa-status" role="status" style="margin-top:10px"></p>
+    </div>
+    <div class="panelbox">
+      <h2>Bewertungen (OMDb)</h2>
+      <p>Zeigt IMDb, Rotten Tomatoes und Metacritic in den Details. Kostenloser Schlüssel auf <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" rel="noopener">omdbapi.com</a>.</p>
+      <p id="om-info"></p>
+      <form class="row" id="omForm">
+        <label class="vh" for="omInput">OMDb-Schlüssel</label>
+        <input id="omInput" type="password" placeholder="OMDb-Schlüssel" autocomplete="off">
+        <button type="submit">Speichern</button>
+        <button type="button" id="omRemove" hidden>Entfernen</button>
+      </form>
+      <p class="status" id="om-status" role="status" style="margin-top:10px"></p>
+    </div>
+    <div class="panelbox">
+      <h2>Daten</h2>
+      <p>Antworten werden im Browser zwischengespeichert, damit die Seite schnell bleibt und die Kontingente reichen.</p>
+      <div class="row">
+        <button type="button" id="clearCache">Zwischenspeicher leeren</button>
+        <button type="button" id="logout">Zugang entfernen</button>
+        <span class="empty" id="c-status" role="status"></span>
+      </div>
+    </div>
+  </section>
+  </main>
+
+  <footer class="foot">
+    <span>Verfügbarkeitsdaten: JustWatch via TMDB</span>
+    <span>Dieses Produkt nutzt die TMDB-API, ist aber nicht von TMDB unterstützt oder zertifiziert.</span>
+    <span>Direkte Links: Streaming Availability API von Movie of the Night</span>
+    <span>Bewertungen: OMDb API</span>
+  </footer>
+</div>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="d-title" id="panel"></div>
+</div>
+<div class="modal" id="picker" hidden>
+  <div class="pick" role="dialog" aria-modal="true" aria-labelledby="pick-title">
+    <h3 id="pick-title">Speichern in</h3>
+    <div id="pick-lists" role="group" aria-labelledby="pick-title"></div>
+    <form class="row" id="pick-new">
+      <label class="vh" for="pick-name">Neue Liste</label>
+      <input id="pick-name" type="text" placeholder="Neue Liste" maxlength="40" autocomplete="off">
+      <button type="submit">Anlegen</button>
+    </form>
+    <button class="primary" type="button" id="pick-done" style="width:100%">Fertig</button>
+  </div>
+</div>
+<div class="modal" id="imp" hidden>
+  <div class="pick wide" role="dialog" aria-modal="true" aria-labelledby="imp-title">
+    <h3 id="imp-title">Importieren</h3>
+    <p>Unterstützt: IMDb-Export (Merkliste oder Bewertungen als CSV), Letterboxd-Export (watchlist.csv, watched.csv, ratings.csv), Streamfinder-Sicherung (JSON) oder eine Liste von Titeln.</p>
+    <p><b>JustWatch</b> bietet keinen Export. Öffne dort deine Merkliste, markiere die Titel, kopiere sie und füge sie unten ein. Zeilen, die kein Titel sind, werden übersprungen.</p>
+    <div class="field"><label for="imp-file">Datei</label><input id="imp-file" type="file" accept=".csv,.json,.txt,text/csv,application/json,text/plain"></div>
+    <div class="field"><label for="imp-text">Oder Titel einfügen, einer pro Zeile, Jahr optional in Klammern</label><textarea id="imp-text" placeholder="Dune (2021)&#10;The Bear&#10;Past Lives"></textarea></div>
+    <div class="field"><label for="imp-target">Merkliste-Titel landen in</label><select id="imp-target"></select></div>
+    <progress id="imp-prog" value="0" max="1" hidden></progress>
+    <p class="status" id="imp-status" role="status" aria-live="polite" style="margin-top:10px"></p>
+    <div class="row">
+      <button type="button" class="primary" id="imp-go">Importieren</button>
+      <button type="button" id="imp-close">Schliessen</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="config.js"></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

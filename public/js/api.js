@@ -1,5 +1,5 @@
 // Alle Abfragen an TMDB, Streaming Availability und OMDb, direkt oder über den eigenen Worker.
-import { S, proxyBase } from "./state.js";
+import { S, proxyBase, emit } from "./state.js";
 import { API, SA_HOST, H, JOBS } from "./constants.js";
 import { cget, cset } from "./cache.js";
 import { pool, titleOf } from "./util.js";
@@ -12,6 +12,13 @@ async function once(k, fn){
   try { return await p } finally { inflight.delete(k) }
 }
 export const authHeader = () => S.sync ? {Authorization: "Bearer " + S.sync} : {};
+
+// Läuft die Seite unter einer anderen Adresse als der Worker? Dann blockiert der Browser die Antworten.
+export const wrongOrigin = () => { try { return !!S.proxy && new URL(S.proxy).origin !== location.origin } catch(e){ return false } };
+function networkError(){
+  if (S.proxy && wrongOrigin()){ emit("wrongOrigin"); return new Error("Diese Adresse darf deinen Worker nicht nutzen. Öffne Streamfinder über " + new URL(S.proxy).host + ".") }
+  return new Error(S.proxy ? "Der Worker antwortet nicht. Prüfe deine Internetverbindung." : "Keine Verbindung zu TMDB. Prüfe deine Internetverbindung.");
+}
 
 function httpError(status, where){
   if (status === 401) return new Error(where === "tmdb" ? "Der TMDB-Schlüssel wurde abgelehnt. Bitte prüfe ihn in den Einstellungen." : "Zugang abgelehnt.");
@@ -32,7 +39,8 @@ export async function tmdb(path, params = {}, ttl = 6 * H){
     if (!S.proxy){ if (S.key.length > 40) headers.Authorization = "Bearer " + S.key; else url.searchParams.set("api_key", S.key) }
     let res;
     try { res = await fetch(url, {headers}) }
-    catch(e){ throw new Error(S.proxy ? "Der Worker ist nicht erreichbar. Prüfe die Adresse in config.js." : "Keine Verbindung zu TMDB. Prüfe deine Internetverbindung.") }
+    catch(e){ throw networkError() }
+    if (res.status === 403 && wrongOrigin()) throw networkError();
     if (!res.ok) throw httpError(res.status, "tmdb");
     const d = await res.json();
     if (ttl) cset(ck, d);
@@ -65,7 +73,7 @@ export async function titleFull(type, id){
     for (const [k, v] of Object.entries(d["watch/providers"]?.results || {})) if (keep.includes(k)) prov[k] = v;
     const crewJobs = ["Director", "Screenplay", "Writer", "Novel", "Story", "Author", "Original Story", "Teleplay", "Characters"];
     const t = {
-      id: d.id, media_type: type, title: titleOf(d), poster_path: d.poster_path, release_date: d.release_date, first_air_date: d.first_air_date,
+      id: d.id, media_type: type, title: titleOf(d), original_title: d.original_title || d.original_name || "", poster_path: d.poster_path, release_date: d.release_date, first_air_date: d.first_air_date,
       runtime: d.runtime, episode_run_time: d.episode_run_time, number_of_seasons: d.number_of_seasons, status: d.status,
       seasons: (d.seasons || []).filter(s => s.season_number > 0 && s.episode_count > 0).map(s => ({n: s.season_number, c: s.episode_count})),
       next: ep(d.next_episode_to_air), last: ep(d.last_episode_to_air), networks: (d.networks || []).map(n => n.name),
@@ -129,8 +137,8 @@ const BATCH = 15;
 const regionKey = (cc, type, id) => `wp:${cc}:${type}:${id}`;
 
 // Liefert eine Map "type:id" → Anbieter-Objekt der aktuellen Region (oder null)
-export async function regions(items){
-  const cc = S.country, out = new Map(), miss = [];
+export async function regions(items, country){
+  const cc = country || S.country, out = new Map(), miss = [];
   const uniq = [...new Map(items.map(i => [i.type + ":" + i.id, i])).values()];
   await Promise.all(uniq.map(async it => {
     const v = await cget(regionKey(cc, it.type, it.id), 6 * H);
@@ -162,7 +170,8 @@ export async function regions(items){
   } else await pool(miss, 6, single);
   return out;
 }
-export async function regionOf(type, id){
+export async function regionOf(type, id, country){
+  if (country) return (await regions([{type, id: +id}], country)).get(type + ":" + id);
   return (await regions([{type, id: +id}])).get(type + ":" + id);
 }
 
@@ -213,4 +222,28 @@ export async function omdb(imdb, ttl = 168 * H){
   if (d.Response === "False" && /key/i.test(d.Error || "")) throw new Error("Der OMDb-Schlüssel wurde abgelehnt.");
   if (ttl) cset(ck, d);
   return d;
+}
+
+/* ---------- Kino ---------- */
+export async function nowPlaying(){
+  const ck = "np:" + S.country;
+  const c = await cget(ck, 12 * H); if (c !== undefined) return c;
+  const out = [];
+  for (const page of [1, 2]){
+    try { const d = await tmdb("/movie/now_playing", {region: S.country, page}, 12 * H); out.push(...d.results); if (page >= d.total_pages) break } catch(e){ break }
+  }
+  cset(ck, out);
+  return out;
+}
+
+/* ---------- Worker-Dienste ---------- */
+export async function workerApi(path, {method = "GET", body, auth = true} = {}){
+  let res;
+  try { res = await fetch(proxyBase() + path, {method, headers: {"Content-Type": "application/json", ...(auth ? authHeader() : {})}, body: body === undefined ? undefined : JSON.stringify(body)}) }
+  catch(e){ throw networkError() }
+  if (res.status === 401) throw Object.assign(new Error("Dieses Gerät ist nicht verbunden. Verbinde es unter Einstellungen → Geräte synchronisieren."), {code: 401});
+  if (res.status === 501) throw Object.assign(new Error((await res.text()) || "Im Worker nicht eingerichtet."), {code: 501});
+  if (res.status === 404) throw Object.assign(new Error((await res.text()) || "Nicht gefunden."), {code: 404});
+  if (!res.ok) throw Object.assign(new Error((await res.text()) || "Fehler " + res.status), {code: res.status});
+  return res.json();
 }

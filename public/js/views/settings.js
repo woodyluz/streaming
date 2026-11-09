@@ -4,7 +4,12 @@ import { COUNTRIES, IMG, FSK } from "../constants.js";
 import { emptyProfile } from "../merge.js";
 import { $, esc, toast, copy } from "../util.js";
 import { tmdb, saShow, omdb, SA, OM } from "../api.js";
-import { providerList } from "../data.js";
+import { providerList, isSwiss } from "../data.js";
+import { hasPin, setPin, needsPinFor, askPin } from "../pin.js";
+import { traktImport } from "../trakt.js";
+import { workerApi } from "../api.js";
+import { restoreFrom } from "../merge.js";
+import { SYNC_FIELDS } from "../state.js";
 import { cclear } from "../cache.js";
 import { syncReady, syncNow, api, writeMeta, enablePush, notify } from "../sync.js";
 import { register, route, current } from "../router.js";
@@ -38,11 +43,16 @@ async function renderSettings(){
     `<label class="cc"><input type="checkbox" value="${c}" ${S.compare.includes(c) ? "checked" : ""}> ${n}</label>`).join("");
   renderProfiles();
   renderNotify();
+  renderPin();
+  renderTrakt();
+  $("city").value = S.city || "";
   try {
     const list = await providerList();
-    const shown = pvShowAll ? list : list.filter((p, i) => i < 24 || S.mine.includes(p.provider_id));
-    $("pv-grid").innerHTML = shown.map(p => `<button type="button" class="pv" data-pv="${p.provider_id}" aria-pressed="${S.mine.includes(p.provider_id)}">
-      <img src="${IMG}w92${p.logo_path}" alt="">${esc(p.provider_name)}</button>`).join("");
+    const swiss = list.filter(p => isSwiss(p.provider_name)), rest = list.filter(p => !isSwiss(p.provider_name));
+    const shown = pvShowAll ? rest : rest.filter((p, i) => i < 24 || S.mine.includes(p.provider_id));
+    const btn = p => `<button type="button" class="pv" data-pv="${p.provider_id}" aria-pressed="${S.mine.includes(p.provider_id)}"><img src="${IMG}w92${p.logo_path}" alt="">${esc(p.provider_name)}</button>`;
+    $("pv-grid").innerHTML = (swiss.length && S.country === "CH" ? `<div class="swissgroup" style="width:100%"><p class="label">Aus der Schweiz</p><div class="pvgrid">${swiss.map(btn).join("")}</div></div><p class="label" style="width:100%;margin-top:6px">Weitere Dienste</p>` : "")
+      + (S.country === "CH" ? shown : [...swiss, ...shown]).map(btn).join("");
     $("pv-all").hidden = pvShowAll || list.length <= shown.length;
   } catch(e){ $("pv-grid").innerHTML = `<p class="empty">${esc(e.message)}</p>` }
 }
@@ -53,6 +63,7 @@ function renderProfiles(){
     <div><label class="vh" for="pfn-${p.id}">Name von Profil ${esc(p.name)}</label><input type="text" id="pfn-${p.id}" data-pfname="${p.id}" value="${esc(p.name)}" maxlength="24"></div>
     <div><label class="vh" for="pff-${p.id}">Altersgrenze für ${esc(p.name)}</label><select id="pff-${p.id}" data-pffsk="${p.id}">${fskOptions("Keine Altersgrenze")}</select></div>
     ${p.id === "main" ? `<span class="empty" style="font-size:12px">Hauptprofil</span>` : `<button type="button" data-pfdel="${p.id}" aria-label="Profil ${esc(p.name)} löschen">Löschen</button>`}
+    <label class="chk"><input type="checkbox" data-pfsp="${p.id}" ${p.spoiler ? "checked" : ""}> Spoiler-Schutz: keine Folgentitel für ungesehene Folgen</label>
   </div>`).join("");
   for (const p of S.profiles){ const sel = $("pff-" + p.id); sel.value = p.maxFsk === null || p.maxFsk === undefined ? "" : String(p.maxFsk) }
   $("pf-confirm").hidden = !pfDelete;
@@ -63,8 +74,9 @@ export function fillProfileSelect(){
   sel.value = S.profile;
   sel.hidden = S.profiles.length < 2;
 }
-export function switchProfile(id){
+export async function switchProfile(id){
   if (!S.profiles.some(p => p.id === id)) return;
+  if (needsPinFor(id) && !(await askPin(`Zum Wechsel in das Profil „${S.profiles.find(p => p.id === id).name}“ braucht es die PIN.`))){ fillProfileSelect(); return }
   S.profile = id; save("profile");
   fillProfileSelect();
   emit("profile");
@@ -76,6 +88,8 @@ $("pf-list").addEventListener("change", e => {
   const n = e.target.closest("[data-pfname]"), f = e.target.closest("[data-pffsk]");
   if (n){ const p = S.profiles.find(x => x.id === n.dataset.pfname); if (p && n.value.trim()){ p.name = n.value.trim().slice(0, 24); p.nt = Date.now(); changed("profiles"); fillProfileSelect() } }
   if (f){ const p = S.profiles.find(x => x.id === f.dataset.pffsk); if (p){ p.maxFsk = f.value === "" ? null : +f.value; p.nt = Date.now(); changed("profiles"); emit("profile") } }
+  const sp = e.target.closest("[data-pfsp]");
+  if (sp){ const p = S.profiles.find(x => x.id === sp.dataset.pfsp); if (p){ p.spoiler = sp.checked; p.nt = Date.now(); changed("profiles") } }
 });
 $("pf-list").addEventListener("click", e => {
   const d = e.target.closest("[data-pfdel]"); if (!d) return;
@@ -203,6 +217,89 @@ $("x-json").addEventListener("click", exportBackup);
 $("x-csv").addEventListener("click", exportCSV);
 $("clearCache").addEventListener("click", async () => { await cclear(); $("c-status").textContent = "Zwischenspeicher geleert." });
 $("logout").addEventListener("click", () => { S.key = ""; S.proxy = ""; save("key"); save("proxy"); cclear(); route() });
+
+/* ---------- Kinderschutz ---------- */
+function renderPin(){
+  $("pin-off").hidden = !hasPin();
+  $("pin-info").textContent = hasPin()
+    ? "Eine PIN ist gesetzt. Aus Profilen mit Altersgrenze geht es nur mit PIN in andere Profile oder in die Einstellungen."
+    : "Mit einer PIN kann aus einem Profil mit Altersgrenze niemand ohne Erlaubnis in ein anderes Profil oder in die Einstellungen wechseln.";
+}
+$("pin-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const v = $("pin-new").value.trim();
+  if (!/^\d{4,6}$/.test(v)){ $("pin-status").textContent = "Die PIN braucht 4 bis 6 Ziffern."; return }
+  await setPin(v); $("pin-new").value = ""; $("pin-status").textContent = "PIN gespeichert. Sie gilt auf allen verbundenen Geräten."; renderPin();
+});
+$("pin-off").addEventListener("click", async () => { await setPin(""); $("pin-status").textContent = "PIN entfernt."; renderPin() });
+
+/* ---------- Sicherungen ---------- */
+const fmtBk = id => { const d = new Date(id.length > 10 ? id + "Z" : id + "T12:00:00Z"); return d.toLocaleDateString("de-CH", {day: "numeric", month: "long", year: "numeric"}) + (id.length > 10 ? ", " + d.toLocaleTimeString("de-CH", {hour: "2-digit", minute: "2-digit"}) : "") };
+async function loadBackups(){
+  const st = $("bk-status");
+  try {
+    const list = await workerApi("/api/backups");
+    $("bk-list").innerHTML = list.length ? list.map(id => `<div class="row"><span>${fmtBk(id)}${id.length > 10 ? " (von Hand)" : ""}</span><button type="button" data-bk="${id}">Zurückholen</button></div>`).join("") : `<p class="empty">Noch keine Sicherungen.</p>`;
+    st.textContent = "";
+  } catch(e){ st.textContent = e.message }
+}
+$("bk-load").addEventListener("click", loadBackups);
+$("bk-now").addEventListener("click", async () => {
+  try { await syncNow(true); await workerApi("/api/backups", {method: "POST"}); $("bk-status").textContent = "Gesichert."; loadBackups() } catch(e){ $("bk-status").textContent = e.message }
+});
+$("bk-list").addEventListener("click", async e => {
+  const b = e.target.closest("[data-bk]"); if (!b) return;
+  b.disabled = true; $("bk-status").textContent = "Hole Sicherung …";
+  try {
+    const d = await workerApi("/api/backups/" + b.dataset.bk);
+    const local = {}; for (const f of SYNC_FIELDS) local[f] = S[f];
+    const m = restoreFrom(local, d.data || {});
+    for (const f of SYNC_FIELDS){ if (m[f] !== undefined){ S[f] = m[f]; save(f) } }
+    emit("dirty", "pdata"); emit("synced");
+    $("bk-status").textContent = `Sicherung vom ${fmtBk(b.dataset.bk)} zurückgeholt und mit deinem aktuellen Stand zusammengeführt.`;
+  } catch(err){ $("bk-status").textContent = err.message } finally { b.disabled = false }
+});
+
+/* ---------- Trakt ---------- */
+let traktPoll = null;
+async function renderTrakt(){
+  const tools = $("tr-tools"), st = $("tr-status");
+  clearInterval(traktPoll); $("tr-code").innerHTML = "";
+  if (!syncReady()){ tools.innerHTML = ""; st.textContent = "Dafür muss dieses Gerät verbunden sein."; return }
+  try {
+    const s = await workerApi("/api/trakt/status");
+    st.textContent = s.connected && S.meta.__traktLast ? "Zuletzt abgeglichen: " + new Date(S.meta.__traktLast).toLocaleString("de-CH", {dateStyle: "medium", timeStyle: "short"}) : "";
+    tools.innerHTML = s.connected ? `<button type="button" class="primary" id="tr-sync">Jetzt abgleichen</button><button type="button" id="tr-off">Trennen</button>` : `<button type="button" class="primary" id="tr-on">Mit Trakt verbinden</button>`;
+  } catch(e){
+    tools.innerHTML = "";
+    st.textContent = e.code === 501 ? "Im Worker fehlen TRAKT_CLIENT_ID und TRAKT_CLIENT_SECRET. Siehe README." : e.message;
+  }
+}
+$("tr-tools").addEventListener("click", async e => {
+  const st = $("tr-status");
+  if (e.target.id === "tr-sync"){
+    st.textContent = "Gleiche ab …";
+    try { const r = await traktImport(); S.meta.__traktOn = true; save("meta"); st.textContent = `Übernommen: ${r.movies} Filme als gesehen, ${r.shows} Serien-Stände.` } catch(err){ st.textContent = err.message }
+  }
+  if (e.target.id === "tr-off"){ try { await workerApi("/api/trakt", {method: "DELETE"}); S.meta.__traktOn = false; save("meta"); renderTrakt() } catch(err){ st.textContent = err.message } }
+  if (e.target.id === "tr-on"){
+    try {
+      const c = await workerApi("/api/trakt/code", {method: "POST"});
+      $("tr-code").innerHTML = `<p>Öffne <a href="${esc(c.verification_url)}" target="_blank" rel="noopener">${esc(c.verification_url.replace(/^https?:\/\//, ""))}</a> und gib diesen Code ein:</p><p class="trakt-code">${esc(c.user_code)}</p>`;
+      st.textContent = "Warte auf Bestätigung bei Trakt …";
+      traktPoll = setInterval(async () => {
+        try {
+          const r = await workerApi("/api/trakt/poll", {method: "POST"});
+          if (r.state === "ok"){ clearInterval(traktPoll); S.meta.__traktOn = true; save("meta"); $("tr-code").innerHTML = ""; st.textContent = "Verbunden. Ich gleiche jetzt ab …"; const x = await traktImport(); st.textContent = `Verbunden. Übernommen: ${x.movies} Filme, ${x.shows} Serien-Stände.`; renderTrakt() }
+          if (r.state === "expired" || r.state === "denied"){ clearInterval(traktPoll); st.textContent = r.state === "denied" ? "Bei Trakt abgelehnt." : "Der Code ist abgelaufen. Versuch es noch einmal."; $("tr-code").innerHTML = "" }
+        } catch(err){ clearInterval(traktPoll); st.textContent = err.message }
+      }, Math.max(5, c.interval || 5) * 1000);
+    } catch(err){ st.textContent = err.message }
+  }
+});
+
+/* ---------- Kino ---------- */
+$("city-form").addEventListener("submit", e => { e.preventDefault(); S.city = $("city").value.trim().slice(0, 40); changed("city"); toast(S.city ? `Kino-Stadt: ${S.city}` : "Kino-Stadt entfernt") });
 
 register("einstellungen", renderSettings);
 export { renderSettings, hasAuth };

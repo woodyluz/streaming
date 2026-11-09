@@ -4,9 +4,10 @@ import assert from "node:assert/strict";
 import worker from "../../worker/worker.js";
 
 const kvStore = new Map();
-const KV = {async get(k, t){ const v = kvStore.get(k); return v == null ? null : t === "json" ? JSON.parse(v) : v }, async put(k, v){ kvStore.set(k, v) }};
+const KV = {async get(k, t){ const v = kvStore.get(k); return v == null ? null : t === "json" ? JSON.parse(v) : v }, async put(k, v){ kvStore.set(k, v) },
+  async delete(k){ kvStore.delete(k) }, async list({prefix}){ return {keys: [...kvStore.keys()].filter(k => k.startsWith(prefix)).map(name => ({name}))} }};
 globalThis.caches = {default: {async match(){ return undefined }, async put(){}}};
-let pushes = [], tmdbCalls = 0, flat = [], nextEp = null;
+let pushes = [], tmdbCalls = 0, flat = [], nextEp = null, rentPrice = 4.9, traktReady = false;
 globalThis.fetch = async (u, o = {}) => {
   u = String(u);
   if (u.startsWith("https://push.example")){ pushes.push(o.headers.Authorization); return new Response(null, {status: 201}) }
@@ -14,10 +15,17 @@ globalThis.fetch = async (u, o = {}) => {
   if (u.includes("/changes")) return Response.json({changes: [{showId: "s1", service: {id: "netflix", name: "Netflix"}, timestamp: Math.floor(Date.now() / 1000) + 3 * 86400}], shows: {s1: {tmdbId: "movie/550", title: "Fight Club"}}});
   if (u.match(/\/3\/tv\/\d+\?/)) return Response.json({name: "Die Serie", next_episode_to_air: nextEp});
   if (u.includes("api.themoviedb.org")) return Response.json({ok: true, auth: o.headers?.Authorization});
+  if (u.includes("rapidapi") && u.includes("/shows/")) return Response.json({streamingOptions: {ch: [{type: "rent", service: {name: "Apple TV"}, price: {amount: String(rentPrice), formatted: rentPrice.toFixed(2) + " CHF"}}]}});
   if (u.includes("rapidapi")) return Response.json({sa: true});
+  if (u.startsWith("https://api.anthropic.com")) return Response.json({content: [{type: "text", text: 'Gern: {"type":"movie","genres":{"movie":[53],"tv":[]},"understood":["spannend"]}'}]});
+  if (u === "https://api.trakt.tv/oauth/device/code") return Response.json({device_code: "dev", user_code: "AB12CD", verification_url: "https://trakt.tv/activate", interval: 5, expires_in: 600});
+  if (u === "https://api.trakt.tv/oauth/device/token") return traktReady ? Response.json({access_token: "tok", refresh_token: "r", created_at: Math.floor(Date.now() / 1000), expires_in: 7776000}) : new Response(null, {status: 400});
+  if (u === "https://api.trakt.tv/sync/watched/movies") return Response.json([{last_watched_at: "2026-01-02T20:00:00Z", movie: {title: "Heat", year: 1995, ids: {tmdb: 949}}}]);
+  if (u === "https://api.trakt.tv/sync/watched/shows") return Response.json([{last_watched_at: "2026-02-02T20:00:00Z", show: {title: "Atypical", year: 2017, ids: {tmdb: 71578}},
+    seasons: [{number: 1, episodes: [{number: 1}, {number: 8}]}, {number: 2, episodes: [{number: 3}]}]}]);
   throw new Error("unerwartet " + u);
 };
-const env = {TMDB_TOKEN: "tok", SA_KEY: "sa", SYNC_SECRET: "geheim", SF_KV: KV, ALLOWED_ORIGIN: "https://me.github.io"};
+const env = {TMDB_TOKEN: "tok", SA_KEY: "sa", SYNC_SECRET: "geheim", SF_KV: KV, ALLOWED_ORIGIN: "https://me.github.io", ANTHROPIC_API_KEY: "k", TRAKT_CLIENT_ID: "c", TRAKT_CLIENT_SECRET: "s"};
 const ctx = {waitUntil(){}};
 const BASE = "https://wk.dev";
 const call = (path, headers = {}, opt = {}) => worker.fetch(new Request(BASE + path, {...opt, headers}), env, ctx);
@@ -82,4 +90,67 @@ test("Täglicher Check: neu im Dienst, letzte Chance, neue Folge heute", async (
   assert.ok(titles.some(t => t.startsWith("Letzte Chance: Fight Club verlässt Netflix")));
   assert.ok(titles.includes("Neue Folge heute: Die Serie: Staffel 2, Folge 5 „Der Plan“"));
   assert.equal(titles.filter(t => t.startsWith("Letzte Chance")).length, 1);
+});
+
+const OWN = {Referer: BASE + "/"};
+const json = (path, headers, method, body) => call(path, {...headers, "Content-Type": "application/json"}, {method, body: body && JSON.stringify(body)});
+
+test("Filmabend: anlegen nur mit Passwort, abstimmen für Gäste über die eigene Seite", async () => {
+  const items = [{key: "movie:1", title: "A"}, {key: "movie:2", title: "B"}, {key: "kaputt"}];
+  assert.equal((await json("/api/vote", OWN, "POST", {items})).status, 401);
+  const {id} = await (await json("/api/vote", A, "POST", {items, title: "Freitag"})).json();
+  assert.match(id, /^[A-Za-z0-9]{10}$/);
+  assert.equal((await json(`/api/vote/${id}/p/abcdef12`, {Origin: "https://boese.example", "Sec-Fetch-Site": "cross-site"}, "PUT", {name: "X", yes: ["movie:1"]})).status, 403);
+  await json(`/api/vote/${id}/p/abcdef12`, OWN, "PUT", {name: "Anna", yes: ["movie:1", "movie:9"], no: ["movie:1", "movie:2"], done: true});
+  const d = await (await call(`/api/vote/${id}`)).json();
+  assert.equal(d.items.length, 2);
+  assert.deepEqual(d.parts[0].yes, ["movie:1"]);
+  assert.deepEqual(d.parts[0].no, ["movie:2"]);
+  await json(`/api/vote/${id}/close`, A, "POST");
+  assert.equal((await json(`/api/vote/${id}/p/abcdef12`, OWN, "PUT", {name: "Anna"})).status, 409);
+});
+
+test("Geteilte Liste: öffentlich lesbar, nur mit Passwort änderbar", async () => {
+  const {id} = await (await json("/api/share", A, "POST", {title: "Schuelreisli", items: [{key: "movie:1", title: "Heat", stars: 5, note: "Top"}]})).json();
+  const d = await (await call("/api/share/" + id)).json();
+  assert.equal(d.title, "Schuelreisli"); assert.equal(d.items[0].stars, 5);
+  assert.equal((await json("/api/share/" + id, {}, "DELETE")).status, 401);
+  await json("/api/share/" + id, A, "DELETE");
+  assert.equal((await call("/api/share/" + id)).status, 404);
+});
+
+test("Sicherungen: manuell und wöchentlich, höchstens zehn", async () => {
+  for (let i = 0; i < 3; i++) await json("/api/backups", A, "POST");
+  const list = await (await call("/api/backups", A)).json();
+  assert.ok(list.length >= 1);
+  const b = await (await call("/api/backups/" + list[0], A)).json();
+  assert.equal(b.updated, 5);
+});
+
+test("Stimmungssuche mit KI liefert Filter, ohne Herkunft abgewiesen", async () => {
+  assert.equal((await json("/api/mood", {}, "POST", {text: "spannend"})).status, 403);
+  const r = await (await json("/api/mood", OWN, "POST", {text: "etwas Spannendes"})).json();
+  assert.deepEqual(r.filters.genres.movie, [53]);
+});
+
+test("Trakt: Gerätecode, Warten, Verbinden, gesehene Titel", async () => {
+  const c = await (await json("/api/trakt/code", A, "POST")).json();
+  assert.equal(c.user_code, "AB12CD");
+  assert.equal((await (await json("/api/trakt/poll", A, "POST")).json()).state, "pending");
+  traktReady = true;
+  assert.equal((await (await json("/api/trakt/poll", A, "POST")).json()).state, "ok");
+  const w = await (await call("/api/trakt/watched", A)).json();
+  assert.deepEqual(w.movies[0], {tmdb: 949, title: "Heat", year: 1995, at: "2026-01-02T20:00:00Z"});
+  assert.deepEqual(w.shows[0].last, {s: 2, e: 3});
+});
+
+test("Preiswächter meldet günstigere Preise", async () => {
+  const data = {v: 2, country: "CH", mine: [], mineNames: {}, profiles: [{id: "main", spoiler: true}],
+    pdata: {main: {lists: [], follow: {}, progress: {}, pwatch: {"movie:77": {t: 1, title: "Dune"}}}}};
+  await json("/api/data", A, "PUT", {updated: 9, data});
+  let done; await worker.scheduled({}, env, {waitUntil: p => done = p}); await done;
+  rentPrice = 2.9;
+  await worker.scheduled({}, env, {waitUntil: p => done = p}); await done;
+  const inbox = await (await call("/api/inbox?after=0", A)).json();
+  assert.ok(inbox.some(n => n.title === "Günstiger" && n.body === "Dune zum Leihen jetzt 2.90 CHF statt 4.90 CHF"));
 });

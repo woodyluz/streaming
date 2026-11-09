@@ -55,6 +55,7 @@ function tmdb(path, q){
     if (query === "film") return {results: [movie(7), movie(8)]};
     return {results: []};
   }
+  if (path === "/movie/now_playing") return {results: [movie(4), movie(30)], total_pages: 1};
   if ((m = path.match(/^\/find\/tt(\d+)$/))) return {movie_results: [movie(+m[1] - 1000)], tv_results: []};
   if (path === "/person/500") return {id: 500, name: "Anna Muster", known_for_department: "Acting", birthday: "1980-05-01", place_of_birth: "Zürich", biography: "Schauspielerin aus Zürich.",
     combined_credits: {cast: [{...movie(4), character: "Heldin"}, {...tv(2), character: "Gast"}, {...tv(9), character: "Gast", genre_ids: [10767]}], crew: [{...movie(5), job: "Screenplay"}]}};
@@ -72,7 +73,9 @@ const SA_CHANGES = {changes: [{showId: "s1", service: {id: "netflix", name: "Net
   shows: {s1: {tmdbId: "movie/4", title: "Film 4", releaseYear: 2024, imageSet: {}, streamingOptions: {ch: [{service: {id: "netflix"}, audios: [{language: "deu"}]}]}},
     s2: {tmdbId: "tv/6", title: "Serie 6", firstAirYear: 2023, imageSet: {}, streamingOptions: {ch: [{service: {id: "netflix"}, audios: [{language: "eng"}]}]}}}};
 
-let synced = null;
+let synced = null, votes = {}, shares = {}, backups = {};
+const rid = () => Math.random().toString(36).slice(2, 7) + Math.random().toString(36).slice(2, 7);
+const readBody = async req => { let b = ""; for await (const c of req) b += c; return b ? JSON.parse(b) : null };
 const SECRET = "geheim";
 const json = (res, data, status = 200) => { res.writeHead(status, {"Content-Type": "application/json", "Cache-Control": "no-store"}); res.end(JSON.stringify(data)) };
 
@@ -81,7 +84,7 @@ http.createServer(async (req, res) => {
   const authed = req.headers.authorization === "Bearer " + SECRET;
   try {
     if (p === "/config.js"){ res.writeHead(200, {"Content-Type": "text/javascript"}); return res.end("window.STREAMFINDER_CONFIG={proxy:location.origin}") }
-    if (p === "/__reset"){ synced = null; return json(res, {ok: true}) }
+    if (p === "/__reset"){ synced = null; votes = {}; shares = {}; backups = {}; return json(res, {ok: true}) }
     if (p.startsWith("/3/")){ const d = tmdb(p.slice(2), url.searchParams); return d ? json(res, d) : json(res, {status_message: "nicht gefunden"}, 404) }
     if (p === "/batch/providers"){
       const out = {};
@@ -90,8 +93,19 @@ http.createServer(async (req, res) => {
     }
     if (p.startsWith("/sa/")){ if (!authed) return json(res, "nein", 401); return json(res, p.startsWith("/sa/changes") ? SA_CHANGES : SA_SHOW) }
     if (p === "/omdb"){ if (!authed) return json(res, "nein", 401); return json(res, {Response: "True", Ratings: [{Source: "Internet Movie Database", Value: "8.1/10"}, {Source: "Rotten Tomatoes", Value: "94%"}]}) }
+    let m;
+    if ((m = p.match(/^\/api\/vote\/(\w{10})$/)) && req.method === "GET"){ const v = votes[m[1]]; return v ? json(res, {...v.doc, parts: Object.values(v.parts)}) : json(res, "weg", 404) }
+    if ((m = p.match(/^\/api\/vote\/(\w{10})\/p\/(\w+)$/)) && req.method === "PUT"){ const b = await readBody(req); votes[m[1]].parts[m[2]] = {...b, pid: m[2]}; return json(res, {ok: true}) }
+    if ((m = p.match(/^\/api\/share\/(\w{10})$/)) && req.method === "GET") return shares[m[1]] ? json(res, shares[m[1]]) : json(res, "weg", 404);
+    if (p === "/api/mood") return json(res, "KI ist nicht eingerichtet", 501);
     if (p.startsWith("/api/")){
       if (!authed) return json(res, "Falsches Sync-Passwort", 401);
+      if (p === "/api/vote" && req.method === "POST"){ const b = await readBody(req); const id = rid(); votes[id] = {doc: {id, title: b.title, host: b.host, items: b.items, closed: false}, parts: {}}; return json(res, {id}) }
+      if (p === "/api/share" && req.method === "POST"){ const b = await readBody(req); const id = b.id || rid(); shares[id] = {...b, id, updated: Date.now()}; return json(res, {id}) }
+      if (p === "/api/backups" && req.method === "POST"){ const id = new Date().toISOString().slice(0, 19); backups[id] = JSON.parse(JSON.stringify(synced)); return json(res, {id}) }
+      if (p === "/api/backups" && req.method === "GET") return json(res, Object.keys(backups).sort().reverse());
+      if ((m = p.match(/^\/api\/backups\/(.+)$/))) return json(res, backups[decodeURIComponent(m[1])]);
+      if (p.startsWith("/api/trakt")) return json(res, "Trakt ist nicht eingerichtet", 501);
       if (p === "/api/data" && req.method === "GET") return json(res, synced || {});
       if (p === "/api/data" && req.method === "PUT"){ let b = ""; for await (const c of req) b += c; synced = JSON.parse(b); return json(res, {ok: true}) }
       return json(res, {ok: true});
@@ -101,5 +115,5 @@ http.createServer(async (req, res) => {
     const body = await readFile(file);
     res.writeHead(200, {"Content-Type": TYPES[extname(file)] || "application/octet-stream", "Cache-Control": "no-store"});
     res.end(body);
-  } catch(e){ res.writeHead(404); res.end("nicht gefunden") }
+  } catch(e){ if (process.env.DEBUG) console.error(e); res.writeHead(404); res.end("nicht gefunden") }
 }).listen(PORT, () => console.log(`Streamfinder-Testserver auf http://localhost:${PORT}`));

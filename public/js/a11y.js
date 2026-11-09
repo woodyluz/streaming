@@ -6,13 +6,14 @@ const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:n
 const page = () => document.querySelector(".wrap");
 
 export function openModal(el, {onClose, focus} = {}){
-  if (stack.some(e => e.el === el)){ (focus || el.querySelector(FOCUSABLE))?.focus(); return }
+  const target = () => (typeof focus === "function" ? focus() : focus) || el.querySelector(FOCUSABLE);
+  if (stack.some(e => e.el === el)){ target()?.focus?.(); return }
   const prev = document.activeElement;
   const below = stack[stack.length - 1];
   if (below) below.el.setAttribute("inert", ""); else page()?.setAttribute("inert", "");
   stack.push({el, prev, onClose});
   el.hidden = false;
-  requestAnimationFrame(() => (typeof focus === "function" ? focus() : focus || el.querySelector(FOCUSABLE))?.focus?.());
+  requestAnimationFrame(() => target()?.focus?.());
 }
 export function closeModal(el){
   const i = stack.findIndex(e => e.el === el);

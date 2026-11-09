@@ -45,8 +45,9 @@ test("Details: Freigabe, Besetzung, Gesehen, Gefällt mir und Bedienung per Tast
   await page.locator("[data-act=seen]").click();
   await expect(page.locator("[data-act=seen]")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("[data-act=seen]")).toBeFocused();
-  await page.locator("[data-act=like][data-v='1']").click();
-  await expect(page.locator("[data-act=like][data-v='1']")).toHaveAttribute("aria-pressed", "true");
+  await page.locator("[data-act=star][data-v='5']").click();
+  await expect(page.locator("[data-act=star][data-v='5']")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-act=star][data-v='5']")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(sheet).toBeHidden();
   await expect(hit).toBeFocused();
@@ -209,7 +210,7 @@ test("Neu & bald, Top 10, Suche, Personen und Empfehlungen", async ({page}) => {
   await expect(page.locator("#p-tabs")).toContainText("Vor der Kamera2");
   await page.locator("#p-grid .card .hit").first().click();
   await page.locator("[data-act=seen]").click();
-  await page.locator("[data-act=like][data-v='1']").click();
+  await page.locator("[data-act=star][data-v='5']").click();
   await expect(page.locator("#sa-box")).toContainText("Ton: Deutsch, Englisch");
   await expect(page.locator("#scores")).toContainText("IMDb 8,1");
   await page.keyboard.press("Escape");

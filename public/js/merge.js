@@ -2,7 +2,7 @@
 // Grundsatz: Nichts geht verloren. Gelöscht wird nur, was vor dem Löschzeitpunkt hinzugefügt wurde.
 
 const KEEP = 90 * 864e5;           // Löschvermerke werden 90 Tage aufbewahrt
-const TOMB_KEYS = ["items", "lists", "watched", "progress", "follow"];
+const TOMB_KEYS = ["items", "lists", "watched", "progress", "follow", "pwatch"];
 const newer = (a, b) => (a || 0) > (b || 0);
 
 export const MAIN_PROFILE = () => ({id: "main", name: "Ich", nt: 0, maxFsk: null});
@@ -12,7 +12,7 @@ export function emptyProfile(p = {}){
   const lists = Array.isArray(p.lists) && p.lists.length ? p.lists : [{id: "main", name: "Merkliste", nt: 0, items: []}];
   const tomb = {};
   for (const k of TOMB_KEYS) tomb[k] = {...(t[k] || {})};
-  return {lists, watched: p.watched || {}, progress: p.progress || {}, follow: p.follow || {}, tomb};
+  return {lists, watched: p.watched || {}, progress: p.progress || {}, follow: p.follow || {}, pwatch: p.pwatch || {}, tomb};
 }
 
 export function mergeTomb(a = {}, b = {}, now = Date.now()){
@@ -55,6 +55,7 @@ export function mergeProfile(Lin, Rin, now = Date.now()){
     watched: byKey(L.watched, R.watched, T.watched),
     progress: byKey(L.progress, R.progress, T.progress),
     follow: byKey(L.follow, R.follow, T.follow),
+    pwatch: byKey(L.pwatch, R.pwatch, T.pwatch),
     tomb: T
   };
 }
@@ -93,6 +94,26 @@ export function mergeAll(Lin, Rin, now = Date.now()){
     country: s.country ?? L.country ?? R.country ?? "CH",
     compare: s.compare ?? L.compare ?? R.compare ?? [],
     prices: s.prices ?? L.prices ?? R.prices ?? {},
+    household: s.household ?? L.household ?? R.household ?? {},
+    city: s.city ?? L.city ?? R.city ?? "",
     setT: Math.max(L.setT || 0, R.setT || 0)
   };
+}
+
+// Sicherung zurückholen: Löschvermerke für alles, was in der Sicherung steht, aufheben, dann zusammenführen
+export function restoreFrom(local, backup, now = Date.now()){
+  const B = upgrade(backup), L = JSON.parse(JSON.stringify(upgrade(local)));
+  for (const [pid, bp] of Object.entries(B.pdata || {})){
+    const lp = L.pdata?.[pid]; if (!lp || !lp.tomb) continue;
+    for (const l of bp.lists || []){
+      delete lp.tomb.lists?.[l.id];
+      for (const i of l.items || []) delete lp.tomb.items?.[l.id + "|" + i.key];
+    }
+    for (const k of ["watched", "progress", "follow", "pwatch"]) for (const key of Object.keys(bp[k] || {})) delete lp.tomb[k]?.[key];
+  }
+  for (const id of Object.keys(B.pdata || {})) delete L.ptomb?.[id];
+  // Wiederhergestellte Einträge gelten als neu, damit spätere Löschungen auf anderen Geräten sie nicht sofort wieder entfernen
+  const fresh = JSON.parse(JSON.stringify(B));
+  for (const bp of Object.values(fresh.pdata || {})) for (const l of bp.lists || []){ l.nt = now; for (const i of l.items || []) i.added = Math.max(i.added || 0, now - 1) }
+  return mergeAll(L, fresh, now);
 }

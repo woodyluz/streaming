@@ -2,7 +2,9 @@
 import { S, P, on } from "../state.js";
 import { COUNTRIES, IMG, H } from "../constants.js";
 import { $, esc, num, short, titleOf, yearOf, pool } from "../util.js";
-import { tmdb, titleFull, regionOf, regions, certOf } from "../api.js";
+import { tmdb, titleFull, regionOf, regions, certOf, workerApi } from "../api.js";
+import { parseMood, sanitizeMood, moodParams } from "../mood.js";
+import { cardHTML, decorate } from "../cards.js";
 import { statusOf, genreMap, remember, isSaved, listItems, listCount } from "../data.js";
 import { fskLimit } from "../cards.js";
 import { scoreCandidates, reasonsFor } from "../recommend.js";
@@ -136,3 +138,35 @@ async function renderForYou(o){
 }
 $("e-refresh").addEventListener("click", () => renderForYou({force: true}));
 register("fuerdich", renderForYou);
+
+/* ---------- Wonach ist dir? ---------- */
+async function moodSearch(text){
+  const out = $("m-out");
+  out.innerHTML = `<p class="status" style="margin-top:12px">Ich suche passende Titel …</p>`;
+  let f = null, via = "Stichworte";
+  if (S.proxy){
+    try { f = sanitizeMood((await workerApi("/api/mood", {method: "POST", body: {text}})).filters); via = "KI" } catch(e){ f = null }
+  }
+  if (!f || (!f.understood.length && !f.genres.movie.length && !f.genres.tv.length)) { f = parseMood(text); via = "Stichworte" }
+  const {limit} = fskLimit("");
+  if (limit !== null) f.fskMax = f.fskMax === null ? limit : Math.min(f.fskMax, limit);
+  const types = f.type ? [f.type] : ["movie", "tv"];
+  try {
+    const lists = await Promise.all(types.map(async t => {
+      const p = {...moodParams(f, t), watch_region: S.country, include_adult: "false"};
+      provParams(p, S.mine.length ? "mine" : "all");
+      if (!S.mine.length) p.with_watch_monetization_types = "flatrate|free|ads";
+      const d = await tmdb(`/discover/${t}`, p, 6 * H);
+      return d.results.filter(x => !P().watched[t + ":" + x.id]).map(x => ({...x, media_type: t}));
+    }));
+    const merged = [];
+    for (let i = 0; merged.length < 16 && lists.some(l => l[i]); i++) for (const l of lists) if (l[i] && merged.length < 16) merged.push(l[i]);
+    const chips = f.understood.map(u => `<span>${esc(u)}</span>`).join("");
+    out.innerHTML = `${chips ? `<div class="understood" aria-label="Verstanden">${chips}</div>` : ""}
+      ${f.notes.map(n => `<p class="sub">${esc(n)}</p>`).join("")}
+      <p class="sub">${merged.length ? `${merged.length} Vorschläge${S.mine.length ? " aus deinen Diensten" : ""}` : "Nichts gefunden. Formuliere es etwas offener."}${via === "KI" ? " · verstanden mit KI" : ""}</p>
+      <div class="grid" id="m-grid">${merged.map(x => cardHTML(x)).join("")}</div>`;
+    decorate($("m-grid"), {fsk: f.fskMax ?? ""});
+  } catch(e){ out.innerHTML = `<p class="status" style="margin-top:12px">${esc(e.message)}</p>` }
+}
+$("m-form").addEventListener("submit", e => { e.preventDefault(); const t = $("m-text").value.trim(); if (t) moodSearch(t) });

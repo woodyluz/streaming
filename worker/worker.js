@@ -14,6 +14,8 @@
 //   OMDB_KEY        (Secret, optional)  OMDb-Schlüssel
 //   ALLOWED_ORIGIN  (Text, optional)    weitere erlaubte Adressen, durch Komma getrennt, z. B. https://deinname.github.io
 //   CONTACT         (Text, optional)    deine E-Mail, wird Push-Diensten als Kontakt genannt
+//   ANTHROPIC_API_KEY (Secret, optional) für die Stimmungssuche mit KI (sonst Stichwort-Suche im Browser)
+//   TRAKT_CLIENT_ID, TRAKT_CLIENT_SECRET (Secrets, optional) für den Abgleich mit Trakt
 // Speicher (SF_KV) und täglicher Zeitplan stehen in wrangler.jsonc.
 
 const SA_HOST = "streaming-availability.p.rapidapi.com";
@@ -29,7 +31,7 @@ export default {
     const allowed = [url.origin, ...String(env.ALLOWED_ORIGIN || "").split(",").map(s => s.trim()).filter(s => s && s !== "*")];
     const origin = req.headers.get("Origin") || "";
     const cors = {
-      "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, PUT, POST, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
       "Access-Control-Max-Age": "86400",
       "Vary": "Origin",
@@ -45,7 +47,7 @@ export default {
       const hasSecret = !!env.SYNC_SECRET && safeEqual(req.headers.get("Authorization") || "", "Bearer " + env.SYNC_SECRET);
       const ownPage = fromOwnPage(req, allowed);
 
-      if (p.startsWith("/api/")) return await handleApi(req, url, env, reply, hasSecret);
+      if (p.startsWith("/api/")) return await handleApi(req, url, env, reply, hasSecret, ownPage);
       if (req.method !== "GET") return reply("Nur GET erlaubt", 405);
 
       if (p.startsWith("/3/") || p === "/batch/providers") {
@@ -74,7 +76,7 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runCheck(env));
+    ctx.waitUntil(Promise.all([runCheck(env), weeklyBackup(env)]));
   },
 };
 
@@ -132,10 +134,44 @@ async function batchProviders(url, env, ctx, reply) {
 }
 
 /* ---------- Sync & Push ---------- */
-async function handleApi(req, url, env, reply, hasSecret) {
-  if (!env.SYNC_SECRET || !env.SF_KV) return reply("Sync ist nicht eingerichtet", 501);
-  if (!hasSecret) return reply("Falsches Sync-Passwort", 401);
+async function handleApi(req, url, env, reply, hasSecret, ownPage) {
+  if (!env.SF_KV) return reply("Speicher SF_KV fehlt", 501);
   const kv = env.SF_KV, p = url.pathname;
+  let m;
+
+  // Öffentlich (für Freunde ohne Passwort), aber nur über die eigene Seite
+  if ((m = p.match(/^\/api\/vote\/([A-Za-z0-9]{10})$/)) && req.method === "GET") {
+    const doc = await kv.get("vote:" + m[1], "json");
+    if (!doc) return reply("Abstimmung nicht gefunden oder abgelaufen", 404);
+    const keys = (await kv.list({ prefix: `vp:${m[1]}:` })).keys;
+    const parts = (await Promise.all(keys.map(k => kv.get(k.name, "json")))).filter(Boolean);
+    return reply({ ...doc, parts }, 200, { "Cache-Control": "no-store" });
+  }
+  if ((m = p.match(/^\/api\/vote\/([A-Za-z0-9]{10})\/p\/([A-Za-z0-9]{6,16})$/)) && req.method === "PUT") {
+    if (!ownPage && !hasSecret) return reply("Nur über die eigene Seite", 403);
+    const doc = await kv.get("vote:" + m[1], "json");
+    if (!doc) return reply("Abstimmung nicht gefunden oder abgelaufen", 404);
+    if (doc.closed) return reply("Abstimmung ist beendet", 409);
+    const b = await req.json().catch(() => null);
+    const valid = new Set(doc.items.map(i => i.key));
+    const clean = a => [...new Set((Array.isArray(a) ? a : []).filter(k => valid.has(k)))];
+    const part = { pid: m[2], name: String(b?.name || "Gast").trim().slice(0, 30) || "Gast", yes: clean(b?.yes), no: clean(b?.no), done: !!b?.done, t: Date.now() };
+    part.no = part.no.filter(k => !part.yes.includes(k));
+    await kv.put(`vp:${m[1]}:${m[2]}`, JSON.stringify(part), { expirationTtl: VOTE_TTL });
+    return reply({ ok: true });
+  }
+  if ((m = p.match(/^\/api\/share\/([A-Za-z0-9]{10})$/)) && req.method === "GET") {
+    const doc = await kv.get("share:" + m[1], "json");
+    return doc ? reply(doc, 200, { "Cache-Control": "no-store" }) : reply("Liste nicht gefunden", 404);
+  }
+  if (p === "/api/mood" && req.method === "POST") {
+    if (!ownPage && !hasSecret) return reply("Nur über die eigene Seite", 403);
+    if (!env.ANTHROPIC_API_KEY) return reply("KI ist nicht eingerichtet", 501);
+    return await mood(req, env, reply);
+  }
+
+  if (!env.SYNC_SECRET) return reply("Sync ist nicht eingerichtet", 501);
+  if (!hasSecret) return reply("Falsches Sync-Passwort", 401);
 
   if (p === "/api/data" && req.method === "GET") return reply((await kv.get("data", "json")) || {});
   if (p === "/api/data" && req.method === "PUT") {
@@ -162,6 +198,158 @@ async function handleApi(req, url, env, reply, hasSecret) {
   if (p === "/api/inbox" && req.method === "GET") {
     const after = +url.searchParams.get("after") || 0;
     return reply(((await kv.get("inbox", "json")) || []).filter(n => n.t > after));
+  }
+
+  // Filmabend
+  if (p === "/api/vote" && req.method === "POST") {
+    const b = await req.json().catch(() => null);
+    const items = (Array.isArray(b?.items) ? b.items : []).slice(0, 30).filter(i => i && /^(movie|tv):\d+$/.test(i.key)).map(i => ({
+      key: i.key, type: i.key.split(":")[0], id: +i.key.split(":")[1], title: String(i.title || "").slice(0, 120), poster: typeof i.poster === "string" ? i.poster.slice(0, 80) : null,
+      year: String(i.year || "").slice(0, 4), info: String(i.info || "").slice(0, 80), overview: String(i.overview || "").slice(0, 400) }));
+    if (items.length < 2) return reply("Mindestens zwei Titel nötig", 400);
+    const id = randomId(10);
+    await kv.put("vote:" + id, JSON.stringify({ id, title: String(b?.title || "Filmabend").slice(0, 60), host: String(b?.host || "").slice(0, 30), created: Date.now(), items, closed: false }), { expirationTtl: VOTE_TTL });
+    return reply({ id });
+  }
+  if ((m = p.match(/^\/api\/vote\/([A-Za-z0-9]{10})\/close$/)) && req.method === "POST") {
+    const doc = await kv.get("vote:" + m[1], "json");
+    if (!doc) return reply("Nicht gefunden", 404);
+    doc.closed = true;
+    await kv.put("vote:" + m[1], JSON.stringify(doc), { expirationTtl: VOTE_TTL });
+    return reply({ ok: true });
+  }
+
+  // Geteilte Listen
+  if (p === "/api/share" && req.method === "POST") {
+    const b = await req.json().catch(() => null);
+    const items = (Array.isArray(b?.items) ? b.items : []).slice(0, 500).filter(i => i && /^(movie|tv):\d+$/.test(i.key)).map(i => ({
+      key: i.key, type: i.key.split(":")[0], id: +i.key.split(":")[1], title: String(i.title || "").slice(0, 120), poster: typeof i.poster === "string" ? i.poster.slice(0, 80) : null,
+      year: String(i.year || "").slice(0, 4), note: String(i.note || "").slice(0, 280), stars: [1, 2, 3, 4, 5].includes(i.stars) ? i.stars : 0 }));
+    const id = b?.id && /^[A-Za-z0-9]{10}$/.test(b.id) ? b.id : randomId(10);
+    const doc = { id, title: String(b?.title || "Liste").slice(0, 60), by: String(b?.by || "").slice(0, 30), intro: String(b?.intro || "").slice(0, 400), items, updated: Date.now() };
+    await kv.put("share:" + id, JSON.stringify(doc));
+    return reply({ id });
+  }
+  if ((m = p.match(/^\/api\/share\/([A-Za-z0-9]{10})$/)) && req.method === "DELETE") {
+    await kv.delete("share:" + m[1]);
+    return reply({ ok: true });
+  }
+
+  // Sicherungen
+  if (p === "/api/backups" && req.method === "GET") {
+    const keys = (await kv.list({ prefix: "backup:" })).keys.map(k => k.name.slice(7)).sort().reverse();
+    return reply(keys);
+  }
+  if (p === "/api/backups" && req.method === "POST") return reply({ id: await makeBackup(env, true) });
+  if ((m = p.match(/^\/api\/backups\/([0-9T:-]{10,19})$/)) && req.method === "GET") {
+    const d = await kv.get("backup:" + m[1], "json");
+    return d ? reply(d) : reply("Sicherung nicht gefunden", 404);
+  }
+
+  // Trakt
+  if (p.startsWith("/api/trakt")) return await trakt(req, p, env, reply);
+
+  return reply("Nicht gefunden", 404);
+}
+
+const VOTE_TTL = 7 * 86400;
+function randomId(n) {
+  const a = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789", b = crypto.getRandomValues(new Uint8Array(n));
+  return [...b].map(x => a[x % a.length]).join("");
+}
+
+/* ---------- Sicherungen ---------- */
+async function makeBackup(env, manual) {
+  const d = await env.SF_KV.get("data");
+  if (!d) return null;
+  const id = new Date().toISOString().slice(0, manual ? 19 : 10);
+  await env.SF_KV.put("backup:" + id, d);
+  const keys = (await env.SF_KV.list({ prefix: "backup:" })).keys.map(k => k.name).sort();
+  for (const k of keys.slice(0, Math.max(0, keys.length - 10))) await env.SF_KV.delete(k);
+  return id;
+}
+async function weeklyBackup(env) {
+  if (!env.SF_KV) return;
+  const keys = (await env.SF_KV.list({ prefix: "backup:" })).keys.map(k => k.name.slice(7)).sort();
+  const last = keys.length ? Date.parse(keys[keys.length - 1].slice(0, 10)) : 0;
+  if (Date.now() - last >= 6.5 * 864e5) await makeBackup(env, false);
+}
+
+/* ---------- Stimmungssuche mit KI ---------- */
+const MOOD_PROMPT = `Du übersetzt Filmwünsche in Suchfilter für TMDB. Antworte nur mit JSON in genau dieser Form:
+{"type":"movie"|"tv"|null,"genres":{"movie":[ids],"tv":[ids]},"without":{"movie":[ids],"tv":[ids]},"runtimeMax":number|null,"runtimeMin":number|null,"yearMin":number|null,"yearMax":number|null,"voteMin":number|null,"voteCountMax":number|null,"fskMax":0|6|12|16|null,"lang":"ISO-639-1, mehrere mit |"|null,"country":"ISO-3166-1"|null,"understood":["kurze deutsche Stichworte, was du verstanden hast"],"notes":["optional ein kurzer Hinweis auf Deutsch"]}
+Film-Genres: 28 Action, 12 Abenteuer, 16 Animation, 35 Komödie, 80 Krimi, 99 Doku, 18 Drama, 10751 Familie, 14 Fantasy, 36 Historie, 27 Horror, 10402 Musik, 9648 Mystery, 10749 Liebesfilm, 878 Science-Fiction, 53 Thriller, 10752 Kriegsfilm, 37 Western.
+Serien-Genres: 10759 Action & Abenteuer, 16 Animation, 35 Komödie, 80 Krimi, 99 Doku, 18 Drama, 10751 Familie, 10762 Kinder, 9648 Mystery, 10765 Sci-Fi & Fantasy, 10768 Krieg & Politik, 37 Western.
+Mehrere Genres bedeuten „eines davon“. Setze nur, was der Wunsch hergibt. „Nicht zu brutal“ heisst fskMax 12. Laufzeit in Minuten (bei Serien pro Folge).`;
+async function mood(req, env, reply) {
+  const b = await req.json().catch(() => null);
+  const text = String(b?.text || "").trim().slice(0, 400);
+  if (!text) return reply("Leerer Wunsch", 400);
+  const day = new Date().toISOString().slice(0, 10);
+  const n = +(await env.SF_KV.get("moodcount:" + day)) || 0;
+  if (n >= 300) return reply("Tageslimit erreicht", 429);
+  await env.SF_KV.put("moodcount:" + day, String(n + 1), { expirationTtl: 2 * 86400 });
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({ model: env.ANTHROPIC_MODEL || "claude-haiku-5-5", max_tokens: 500, system: MOOD_PROMPT, messages: [{ role: "user", content: text }] })
+  });
+  if (!r.ok) return reply("KI-Fehler " + r.status, 502);
+  const d = await r.json();
+  const out = (d.content || []).map(c => c.text || "").join("");
+  const j = out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1);
+  try { return reply({ filters: JSON.parse(j) }) } catch (e) { return reply("KI-Antwort unlesbar", 502) }
+}
+
+/* ---------- Trakt ---------- */
+const TRAKT = "https://api.trakt.tv";
+const traktHeaders = (env, token) => ({ "Content-Type": "application/json", "trakt-api-version": "2", "trakt-api-key": env.TRAKT_CLIENT_ID, ...(token ? { Authorization: "Bearer " + token } : {}) });
+async function traktToken(env) {
+  const t = await env.SF_KV.get("trakt", "json");
+  if (!t) return null;
+  if (Date.now() < (t.created_at + t.expires_in) * 1000 - 864e5) return t.access_token;
+  const r = await fetch(TRAKT + "/oauth/token", { method: "POST", headers: traktHeaders(env),
+    body: JSON.stringify({ refresh_token: t.refresh_token, client_id: env.TRAKT_CLIENT_ID, client_secret: env.TRAKT_CLIENT_SECRET, redirect_uri: "urn:ietf:wg:oauth:2.0:oob", grant_type: "refresh_token" }) });
+  if (!r.ok) return null;
+  const n = await r.json();
+  await env.SF_KV.put("trakt", JSON.stringify(n));
+  return n.access_token;
+}
+async function trakt(req, p, env, reply) {
+  if (!env.TRAKT_CLIENT_ID || !env.TRAKT_CLIENT_SECRET) return reply("Trakt ist nicht eingerichtet", 501);
+  const kv = env.SF_KV;
+  if (p === "/api/trakt/status") return reply({ connected: !!(await kv.get("trakt")) });
+  if (p === "/api/trakt" && req.method === "DELETE") { await kv.delete("trakt"); return reply({ ok: true }) }
+  if (p === "/api/trakt/code" && req.method === "POST") {
+    const r = await fetch(TRAKT + "/oauth/device/code", { method: "POST", headers: traktHeaders(env), body: JSON.stringify({ client_id: env.TRAKT_CLIENT_ID }) });
+    if (!r.ok) return reply("Trakt antwortet mit " + r.status, 502);
+    const d = await r.json();
+    await kv.put("traktcode", d.device_code, { expirationTtl: Math.max(60, d.expires_in || 600) });
+    return reply({ user_code: d.user_code, verification_url: d.verification_url, interval: d.interval || 5, expires_in: d.expires_in });
+  }
+  if (p === "/api/trakt/poll" && req.method === "POST") {
+    const code = await kv.get("traktcode");
+    if (!code) return reply({ state: "expired" });
+    const r = await fetch(TRAKT + "/oauth/device/token", { method: "POST", headers: traktHeaders(env),
+      body: JSON.stringify({ code, client_id: env.TRAKT_CLIENT_ID, client_secret: env.TRAKT_CLIENT_SECRET }) });
+    if (r.status === 200) { await kv.put("trakt", JSON.stringify(await r.json())); await kv.delete("traktcode"); return reply({ state: "ok" }) }
+    if (r.status === 400) return reply({ state: "pending" });
+    if (r.status === 429) return reply({ state: "slow" });
+    return reply({ state: r.status === 418 ? "denied" : "expired" });
+  }
+  if (p === "/api/trakt/watched" && req.method === "GET") {
+    const token = await traktToken(env);
+    if (!token) return reply("Nicht mit Trakt verbunden", 401);
+    const [m, s] = await Promise.all([
+      fetch(TRAKT + "/sync/watched/movies", { headers: traktHeaders(env, token) }).then(r => r.ok ? r.json() : []),
+      fetch(TRAKT + "/sync/watched/shows", { headers: traktHeaders(env, token) }).then(r => r.ok ? r.json() : [])]);
+    const movies = m.filter(x => x.movie?.ids?.tmdb).map(x => ({ tmdb: x.movie.ids.tmdb, title: x.movie.title, year: x.movie.year, at: x.last_watched_at }));
+    const shows = s.filter(x => x.show?.ids?.tmdb).map(x => {
+      let last = null;
+      for (const se of x.seasons || []) { if (se.number < 1) continue; for (const e of se.episodes || []) if (!last || se.number > last.s || (se.number === last.s && e.number > last.e)) last = { s: se.number, e: e.number } }
+      return { tmdb: x.show.ids.tmdb, title: x.show.title, year: x.show.year, at: x.last_watched_at, last };
+    });
+    return reply({ movies, shows });
   }
   return reply("Nicht gefunden", 404);
 }
@@ -277,7 +465,8 @@ async function runCheck(env) {
       const mark = `${s.id}:${e.season_number}:${e.episode_number}`;
       if (state.ep[mark]) continue;
       state.ep[mark] = Date.now();
-      alerts.push({ title: "Neue Folge heute", body: `${d.name}: Staffel ${e.season_number}, Folge ${e.episode_number}${e.name && !/^(Folge|Episode) \d+$/i.test(e.name) ? ` „${e.name}“` : ""}`, url: `./#t-tv-${s.id}` });
+      const spoiler = (data.profiles || []).some(p => p.spoiler);
+      alerts.push({ title: "Neue Folge heute", body: `${d.name}: Staffel ${e.season_number}, Folge ${e.episode_number}${!spoiler && e.name && !/^(Folge|Episode) \d+$/i.test(e.name) ? ` „${e.name}“` : ""}`, url: `./#t-tv-${s.id}` });
     } catch (e) {}
   }
   for (const [k, t] of Object.entries(state.ep)) if (t < Date.now() - 30 * 864e5) delete state.ep[k];
@@ -305,6 +494,47 @@ async function runCheck(env) {
     } catch (e) {}
   }
 
+  // Preiswächter: beobachtete Titel reihum über Streaming Availability prüfen
+  const watch = [];
+  for (const pd of Object.values(data.pdata || {})) for (const [k, v] of Object.entries(pd.pwatch || {})) if (!watch.some(w => w.key === k)) watch.push({ ...v, key: k });
+  state.pcursor ||= 0; state.prices ||= {};
+  if (env.SA_KEY && watch.length) {
+    const n = Math.min(6, watch.length);
+    for (let i = 0; i < n; i++) {
+      const w = watch[(state.pcursor + i) % watch.length];
+      try {
+        const [type, id] = w.key.split(":");
+        const r = await fetch(`https://${SA_HOST}/shows/${type}/${id}?country=${country.toLowerCase()}`, { headers: { "X-RapidAPI-Key": env.SA_KEY, "X-RapidAPI-Host": SA_HOST } });
+        if (!r.ok) continue;
+        const now = cheapest(await r.json(), country, names, mine);
+        const prev = state.prices[w.key];
+        const title = w.title || "Ein Titel";
+        if (prev) {
+          if (now.mine && !prev.mine) alerts.push({ title: "Jetzt im Abo", body: `${title} läuft jetzt bei ${now.mine}`, url: `./#t-${type}-${id}` });
+          else for (const kind of ["rent", "buy"]) if (now[kind] && prev[kind] && now[kind].amount <= prev[kind].amount - 0.5)
+            alerts.push({ title: "Günstiger", body: `${title} zum ${kind === "rent" ? "Leihen" : "Kaufen"} jetzt ${now[kind].text} statt ${prev[kind].text}`, url: `./#t-${type}-${id}` });
+        }
+        state.prices[w.key] = now;
+      } catch (e) {}
+    }
+    state.pcursor = (state.pcursor + n) % watch.length;
+    for (const k of Object.keys(state.prices)) if (!watch.some(w => w.key === k)) delete state.prices[k];
+  }
+
   await env.SF_KV.put("state", JSON.stringify(state));
   if (alerts.length) { await addInbox(env, alerts); await sendAll(env); }
+}
+
+function cheapest(show, country, names, mine) {
+  const opts = (show.streamingOptions || {})[country.toLowerCase()] || [];
+  const out = { rent: null, buy: null, mine: null };
+  const mineNames = mine.map(id => normName(names[id]));
+  for (const o of opts) {
+    if (o.type === "subscription" && mineNames.includes(normName(o.service?.name))) out.mine = o.service.name;
+    if ((o.type === "rent" || o.type === "buy") && o.price) {
+      const a = +o.price.amount;
+      if (!out[o.type] || a < out[o.type].amount) out[o.type] = { amount: a, text: o.price.formatted || String(a), service: o.service?.name || "" };
+    }
+  }
+  return out;
 }

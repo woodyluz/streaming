@@ -21,6 +21,23 @@ und OMDb (IMDb, Rotten Tomatoes, Metacritic).
 - **Sync** zwischen allen Geräten und **Push-Mitteilungen**, auch bei geschlossener App
 - Bedienbar per Tastatur und Screenreader, hell und dunkel, als App installierbar
 
+### Neu in Version 6
+
+- **Abo-Planer** (Reiter *Planer*): ein Dienst pro Monat, gewählt nach deinen Listen, Serien, Ablaufdaten und Preisen.
+  Zeigt Gratis-Titel, was du wann schauen kannst, was du sparst und welche Abos du kündigen kannst
+- **Reise-Modus** (Reiter *Planer*): was aus deinen Listen am Reiseziel läuft
+- **Filmabend**: Abstimmung mit Link für Freunde und Familie, alle wischen ja oder nein, der erste gemeinsame Treffer gewinnt
+- **Wonach ist dir?** (Reiter *Für dich*): Suche in eigenen Worten, z. B. „etwas Spannendes unter 2 Stunden, nicht zu brutal“
+- **Listen teilen** als Leselink, den jede Person ohne Konto öffnen kann
+- **Sterne und Notizen** statt nur „Gefällt mir“, **Jahresrückblick** in der Statistik
+- **Preiswächter**: meldet, wenn ein Titel günstiger wird oder in deinem Abo landet
+- **Jetzt im Kino** mit Link zu Vorstellungen in deiner Stadt
+- **Kinderschutz-PIN**, **Spoiler-Schutz** pro Profil, **Wischgesten** am Handy (rechts merken, links gesehen)
+- **Schweizer Angebote** zuerst, **Originaltitel** unter dem deutschen Titel, fehlende Poster werden automatisch nachgeladen
+- **Automatische Sicherung** jede Woche, mit Zurückholen in den Einstellungen
+- **Trakt-Abgleich** für „Gesehen“ und Serien-Stand
+- Klarer Hinweis, wenn Streamfinder unter der falschen Adresse geöffnet ist
+
 ## Aufbau
 
 ```
@@ -37,7 +54,11 @@ tests/e2e/         Tests im Browser (Playwright) mit nachgebautem Worker
 .github/workflows/ Automatische Tests bei jedem Update
 ```
 
-## Aktualisieren von Version 4
+## Aktualisieren
+
+Von Version 5: alle Dateien hochladen und ersetzen, Daten bleiben erhalten. `wrangler.jsonc` ist unverändert.
+
+### Von Version 4
 
 1. Auf GitHub alle neuen Dateien und Ordner hochladen (*Add file → Upload files*, den **Inhalt** des Ordners hineinziehen).
 2. Die alten Dateien im Hauptordner werden nicht mehr gebraucht und können gelöscht werden:
@@ -60,6 +81,9 @@ Im Worker unter *Einstellungen → Variablen und Secrets*:
 | `OMDB_KEY` | Secret | optional: OMDb-Schlüssel |
 | `ALLOWED_ORIGIN` | Text | nur nötig, wenn du die Seite zusätzlich woanders öffnest, z. B. `https://deinname.github.io` |
 | `CONTACT` | Text | optional: deine E-Mail, wird Push-Diensten als Kontakt genannt |
+| `ANTHROPIC_API_KEY` | Secret | optional: Stimmungssuche mit KI (siehe unten) |
+| `TRAKT_CLIENT_ID` | Secret | optional: Trakt-Abgleich (siehe unten) |
+| `TRAKT_CLIENT_SECRET` | Secret | optional: Trakt-Abgleich |
 
 Speicher und täglicher Zeitplan richtet `wrangler.jsonc` automatisch ein.
 
@@ -82,6 +106,19 @@ npm run test:unit
 Schlägt ein Test fehl, veröffentlicht Cloudflare die neue Version nicht. Die ausführlichen Browser-Tests laufen
 zusätzlich auf GitHub (Reiter *Actions*), ein grüner Haken heisst: alles in Ordnung.
 
+## Optionale Dienste
+
+**Stimmungssuche mit KI.** Ohne Schlüssel versteht Streamfinder rund 40 Stichworte auf Deutsch („spannend“, „lustig“,
+„nicht zu brutal“, „unter 2 Stunden“, „aus den 90ern“, „Geheimtipp“ …). Mit einem Schlüssel von https://console.anthropic.com
+versteht es freie Sätze besser. Das kostet pro Suche einen Bruchteil eines Rappens; der Worker begrenzt auf 300 Suchen pro Tag.
+
+**Trakt.** Auf https://trakt.tv/oauth/applications eine App anlegen, als Redirect-URI `urn:ietf:wg:oauth:2.0:oob` eintragen,
+Client-ID und Client-Secret als Secrets im Worker speichern. Danach in Streamfinder *Einstellungen → Trakt → Mit Trakt verbinden*.
+Streamfinder gleicht beim Öffnen höchstens alle 12 Stunden automatisch ab.
+
+**Filmabend und geteilte Listen** brauchen keinen weiteren Dienst. Erstellen geht nur auf verbundenen Geräten,
+mitmachen und ansehen kann jede Person mit dem Link. Abstimmungen laufen sieben Tage.
+
 ## Tests lokal ausführen
 
 ```
@@ -100,6 +137,12 @@ npm test
   Zeilen, die kein Titel sind, werden übersprungen.
 
 ## Grenzen
+
+- **Kino:** Es gibt keine frei nutzbare Quelle für Schweizer Kinoprogramme. Streamfinder zeigt, was laut TMDB im Kino läuft,
+  und verlinkt für die Vorstellungen eine Websuche mit deiner Stadt.
+- **Abo-Planer:** Ablaufdaten kommen von Streaming Availability und werden nur für die ersten 15 Titel abgefragt, um das Kontingent zu schonen.
+  Ohne eingetragene Preise rechnet der Planer mit einem Durchschnittspreis.
+- **Schweizer Angebote** erscheinen nur, wenn TMDB sie für die Schweiz kennt.
 
 - Altersfreigaben stammen aus TMDB (FSK für Deutschland). Für Titel ohne Angabe gilt: in Profilen mit Altersgrenze ausgeblendet, sonst angezeigt.
 - Der tägliche Check prüft pro Lauf bis zu 25 Listentitel und 10 Serien, bei mehr reihum.

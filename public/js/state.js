@@ -14,7 +14,7 @@ export const S = {
   key: J("key", store.get("tmdb_key") || ""),
   proxy: J("proxy", "") || (CFG.proxy || "").trim(),
   sa: J("sa", ""), omdb: J("omdb", ""), sync: J("sync", ""),
-  country: J("country", "CH"), mine: J("mine", []), compare: J("compare", ["DE", "AT"]), prices: J("prices", {}),
+  country: J("country", "CH"), mine: J("mine", []), compare: J("compare", ["DE", "AT"]), prices: J("prices", {}), household: J("household", {}), city: J("city", ""),
   profiles: J("profiles", null), pdata: J("pdata", null), ptomb: J("ptomb", {}), setT: J("setT", 0),
   profile: J("profile", "main"), track: J("track", {}), meta: J("meta", {}),
   theme: J("theme", ""), pushOn: J("pushOn", false), curList: J("curList", {}), calLists: J("calLists", true)
@@ -46,8 +46,8 @@ export const bus = new EventTarget();
 export const emit = (type, detail) => bus.dispatchEvent(new CustomEvent(type, {detail}));
 export const on = (type, fn) => bus.addEventListener(type, e => fn(e.detail));
 
-export const SYNC_FIELDS = ["profiles", "pdata", "ptomb", "mine", "country", "compare", "prices", "setT"];
-const SETTINGS = ["mine", "country", "compare", "prices"];
+export const SYNC_FIELDS = ["profiles", "pdata", "ptomb", "mine", "country", "compare", "prices", "household", "city", "setT"];
+const SETTINGS = ["mine", "country", "compare", "prices", "household", "city"];
 export function changed(k){
   save(k);
   if (SETTINGS.includes(k)){ S.setT = Date.now(); save("setT") }

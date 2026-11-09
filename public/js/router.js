@@ -2,7 +2,8 @@
 import { hasAuth } from "./state.js";
 import { $ } from "./util.js";
 
-export const VIEWS = ["setup", "entdecken", "suche", "neu", "kalender", "top", "fuerdich", "listen", "statistik", "person", "einstellungen"];
+export const VIEWS = ["setup", "entdecken", "suche", "neu", "kalender", "top", "fuerdich", "listen", "planer", "statistik", "person", "abstimmen", "liste", "einstellungen"];
+const SPECIAL = ["setup", "person", "abstimmen", "liste"];
 const views = {};
 let cur = "", hooks = {};
 export const current = () => cur;
@@ -16,8 +17,13 @@ export function show(v){
   for (const a of $("tabs").querySelectorAll("a")) a.dataset.v === v ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current");
 }
 export function route(){
-  if (!hasAuth()){ show("setup"); return }
   let h = decodeURIComponent(location.hash.slice(1));
+  const vt = h.match(/^abstimmen-([A-Za-z0-9]{10})$/), sl = h.match(/^liste-([A-Za-z0-9]{10})$/);
+  if (vt || sl){
+    hooks.closeDetail?.(true);
+    show(vt ? "abstimmen" : "liste"); views[vt ? "abstimmen" : "liste"]?.((vt || sl)[1]); window.scrollTo(0, 0); return;
+  }
+  if (!hasAuth()){ show("setup"); return }
   if (h.startsWith("sync-")){
     hooks.consumeSync?.(h.slice(5));
     history.replaceState(null, "", location.pathname + "#einstellungen");
@@ -33,7 +39,8 @@ export function route(){
   const p = h.match(/^p-(\d+)$/);
   if (p){ show("person"); views.person?.(p[1]); window.scrollTo(0, 0); return }
   let v = h || "entdecken";
-  if (!VIEWS.includes(v) || v === "setup" || v === "person") v = "entdecken";
+  if (!VIEWS.includes(v) || SPECIAL.includes(v)) v = "entdecken";
+  if (hooks.guard && !hooks.guard(v)){ location.replace("#" + (cur && cur !== v && !SPECIAL.includes(cur) ? cur : "entdecken")); return }
   if (v === "suche" && $("q").value.trim().length < 2) v = "entdecken";
   const changedView = v !== cur;
   show(v);

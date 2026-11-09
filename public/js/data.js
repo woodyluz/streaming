@@ -2,9 +2,20 @@
 import { S, P, touch, emit, save } from "./state.js";
 import { tmdb, regions } from "./api.js";
 import { H, SA_MAP } from "./constants.js";
-import { normName, titleOf, yearOf } from "./util.js";
+import { normName, normTitle, titleOf, yearOf, pool } from "./util.js";
+import { titleFull } from "./api.js";
+import { likeFromStars } from "./stats.js";
 
 export const MINE_NAMES = new Map();
+// Originaltitel nur, wenn er sich vom angezeigten Titel unterscheidet
+export function origOf(it){
+  const o = it.original_title || it.original_name || it.orig;
+  if (o === undefined) return undefined;
+  return o && normTitle(o) !== normTitle(titleOf(it)) ? o : "";
+}
+// Angebote aus der Schweiz
+export const SWISS = /play ?suisse|\bsrf\b|\brts\b|\brsi\b|blue ?(tv|video)?\b|zattoo|teleboy|filmfriend|cinu|myfilm|sky show|oneplus|wilmaa|swisscom|sunrise|salt ?tv/i;
+export const isSwiss = name => SWISS.test(name || "");
 export async function providerList(){
   const opt = {watch_region: S.country};
   const [m, t] = await Promise.all([tmdb("/watch/providers/movie", opt, 72 * H), tmdb("/watch/providers/tv", opt, 72 * H)]);
@@ -35,7 +46,7 @@ export function remember(it){
   const type = it.media_type || it.type, key = type + ":" + it.id;
   const prev = ITEMS.get(key) || {};
   ITEMS.set(key, {key, type, id: +it.id, title: titleOf(it) || prev.title || "", poster: it.poster_path || it.poster || prev.poster || null,
-    posterUrl: it.posterUrl || prev.posterUrl || null, year: yearOf(it) || prev.year || ""});
+    posterUrl: it.posterUrl || prev.posterUrl || null, year: yearOf(it) || prev.year || "", orig: origOf(it) ?? prev.orig ?? ""});
   // Angaben fürs Sortieren und Filtern der Listen merken (nur lokal)
   if (it.vote_average !== undefined || it.genre_ids || it.genres || it.runtime){
     const m = S.meta[key] || {};
@@ -99,6 +110,53 @@ export function setWatched(key, on){
 export function setLike(key, v){
   const w = P().watched[key]; if (!w) return;
   w.like = w.like === v ? 0 : v; w.t = Date.now(); touch(); emit("watched", key);
+}
+export function setStars(key, n){
+  const w = P().watched[key]; if (!w) return;
+  w.stars = w.stars === n ? 0 : n; w.like = likeFromStars(w.stars); touch(); emit("watched", key);
+}
+export function setNote(key, text){
+  const w = P().watched[key]; if (!w) return;
+  w.note = String(text || "").slice(0, 500); touch();
+}
+export const isPriceWatched = key => !!P().pwatch[key];
+export function setPriceWatch(key, on, extra = {}){
+  const pd = P();
+  if (on){ const it = ITEMS.get(key) || {}; pd.pwatch[key] = {key, title: it.title || extra.title || "", type: it.type, id: it.id, t: Date.now(), ...extra} }
+  else { delete pd.pwatch[key]; pd.tomb.pwatch[key] = Date.now() }
+  touch();
+}
+
+// Fehlende Angaben (Poster, Jahr, Originaltitel) für gespeicherte Titel nachladen
+let backfillRunning = false;
+const tried = new Set();   // pro Sitzung nur einmal versuchen
+export async function backfill(limit = 60){
+  if (backfillRunning) return 0;
+  backfillRunning = true;
+  try {
+    const all = new Map();
+    for (const pd of Object.values(S.pdata)){
+      for (const l of pd.lists) for (const i of l.items) if (!all.has(i.key)) all.set(i.key, i);
+      for (const w of Object.values(pd.watched)) if (w.type && !all.has(w.key)) all.set(w.key, w);
+    }
+    const need = [...all.values()].filter(i => !tried.has(i.key) && (!i.poster || !i.year || i.orig === undefined)).slice(0, limit);
+    need.forEach(i => tried.add(i.key));
+    if (!need.length) return 0;
+    const found = new Map();
+    await pool(need, 3, async i => { try { found.set(i.key, await titleFull(i.type, i.id)) } catch(e){} });
+    let n = 0;
+    const fix = i => {
+      const f = found.get(i.key); if (!f) return;
+      if (!i.poster && f.poster_path){ i.poster = f.poster_path; n++ }
+      const y = (f.release_date || f.first_air_date || "").slice(0, 4);
+      if (!i.year && y){ i.year = y; n++ }
+      if (i.orig === undefined){ i.orig = origOf(f) || ""; if (i.orig) n++ }
+    };
+    for (const pd of Object.values(S.pdata)){ for (const l of pd.lists) l.items.forEach(fix); Object.values(pd.watched).forEach(fix) }
+    if (found.size) touch();
+    if (n) emit("backfilled");
+    return n;
+  } finally { backfillRunning = false }
 }
 export const isFollowed = key => !!P().follow[key];
 export function setFollow(key, on){

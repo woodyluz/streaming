@@ -1,6 +1,6 @@
 // Streamfinder Service Worker: App offline verfügbar, Poster zwischenspeichern, Push-Mitteilungen
-const SHELL = "sf-shell-v5", IMGS = "sf-img-v1", META = "sf-meta";
-const FILES = ["./", "./config.js","./css/app.css","./icon-192.png","./icon-512.png","./icon.svg","./index.html","./js/a11y.js","./js/api.js","./js/cache.js","./js/calendar.js","./js/cards.js","./js/constants.js","./js/data.js","./js/importers.js","./js/main.js","./js/merge.js","./js/picker.js","./js/recommend.js","./js/router.js","./js/state.js","./js/stats.js","./js/sync.js","./js/util.js","./js/views/calendar.js","./js/views/detail.js","./js/views/discover.js","./js/views/foryou.js","./js/views/importer.js","./js/views/lists.js","./js/views/news.js","./js/views/settings.js","./js/views/stats.js","./manifest.webmanifest"];
+const SHELL = "sf-shell-v6", IMGS = "sf-img-v1", META = "sf-meta";
+const FILES = ["./", "./config.js","./css/app.css","./icon-192.png","./icon-512.png","./icon.svg","./index.html","./js/a11y.js","./js/api.js","./js/cache.js","./js/calendar.js","./js/cards.js","./js/constants.js","./js/data.js","./js/importers.js","./js/main.js","./js/merge.js","./js/mood.js","./js/picker.js","./js/pin.js","./js/plan.js","./js/recommend.js","./js/router.js","./js/state.js","./js/stats.js","./js/sync.js","./js/trakt.js","./js/util.js","./js/views/calendar.js","./js/views/detail.js","./js/views/discover.js","./js/views/foryou.js","./js/views/importer.js","./js/views/lists.js","./js/views/news.js","./js/views/planner.js","./js/views/settings.js","./js/views/shared.js","./js/views/stats.js","./js/views/vote.js","./js/vote.js","./manifest.webmanifest"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES)).catch(() => {}));

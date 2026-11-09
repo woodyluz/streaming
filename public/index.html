@@ -37,10 +37,12 @@
     <a href="#top" data-v="top">Top 10</a>
     <a href="#fuerdich" data-v="fuerdich">Für dich</a>
     <a href="#listen" data-v="listen">Listen <span class="badge" id="badge" hidden></span></a>
+    <a href="#planer" data-v="planer">Planer</a>
     <a href="#statistik" data-v="statistik">Statistik</a>
     <a href="#einstellungen" data-v="einstellungen">Einstellungen</a>
   </nav>
 
+  <div class="banner" id="originBanner" role="alert" hidden></div>
   <main id="main" tabindex="-1">
   <!-- Einrichtung -->
   <section id="v-setup" hidden aria-labelledby="setup-h">
@@ -143,6 +145,16 @@
   <!-- Für dich -->
   <section id="v-fuerdich" hidden aria-label="Für dich">
     <div class="pick-box">
+      <h2 class="sec">Wonach ist dir?</h2>
+      <p class="sub">Beschreib in deinen Worten, was du sehen möchtest, z. B. „etwas Spannendes unter 2 Stunden, nicht zu brutal“.</p>
+      <form class="moodbox" id="m-form">
+        <label class="vh" for="m-text">Dein Wunsch</label>
+        <input id="m-text" type="text" maxlength="300" placeholder="Lustige Serie mit kurzen Folgen …" autocomplete="off">
+        <button class="primary" type="submit">Finden</button>
+      </form>
+      <div id="m-out" aria-live="polite"></div>
+    </div>
+    <div class="pick-box">
       <h2 class="sec">Was schaue ich heute?</h2>
       <p class="sub">Ein zufälliger, gut bewerteter Titel aus deinen Diensten.</p>
       <div class="filters" style="margin:0">
@@ -156,6 +168,7 @@
         </select>
         <select id="r-fsk" aria-label="Altersfreigabe" class="fsk-select"></select>
         <button class="primary" type="button" id="r-go">Vorschlag</button>
+        <button type="button" data-vote>Filmabend mit anderen</button>
       </div>
       <div id="r-out" aria-live="polite"></div>
     </div>
@@ -189,6 +202,47 @@
     <div class="row" id="l-confirm" hidden style="margin-bottom:16px" role="alertdialog" aria-label="Löschen bestätigen"></div>
     <p class="status" id="l-status" role="status"></p>
     <div class="grid" id="l-grid"></div>
+  </section>
+
+  <!-- Planer -->
+  <section id="v-planer" hidden aria-label="Planer">
+    <div class="subtabs" role="group" aria-label="Planer">
+      <button type="button" data-sub="abos" aria-pressed="true">Abo-Planer</button>
+      <button type="button" data-sub="reise" aria-pressed="false">Reise-Modus</button>
+    </div>
+    <div id="pl-abos">
+      <h2 class="sec">Abo-Planer</h2>
+      <p class="sub">Ein Dienst pro Monat, gewählt nach deinen Listen und Serien. Auslaufende Titel kommen zuerst. So siehst du mehr und zahlst weniger.</p>
+      <div class="planform">
+        <label>Titel pro Monat <input id="pl-per" type="number" min="1" max="40" value="8"></label>
+        <label>Monate <input id="pl-months" type="number" min="1" max="12" value="4"></label>
+        <label class="toggle"><input type="checkbox" id="pl-all" checked> Alle Dienste, nicht nur meine</label>
+      </div>
+      <p class="status" id="pl-status" role="status"></p>
+      <div id="pl-box"></div>
+    </div>
+    <div id="pl-reise" hidden>
+      <h2 class="sec">Reise-Modus</h2>
+      <p class="sub">Was aus deinen Listen läuft am Reiseziel in deinen Diensten? Praktisch für Ferien oder mit VPN.</p>
+      <div class="planform">
+        <label>Reiseziel <select id="rs-country"></select></label>
+        <label class="toggle"><input type="checkbox" id="rs-mine" checked> Nur meine Dienste</label>
+      </div>
+      <p class="status" id="rs-status" role="status"></p>
+      <div id="rs-box"></div>
+    </div>
+  </section>
+
+  <!-- Filmabend -->
+  <section id="v-abstimmen" hidden aria-label="Filmabend">
+    <div id="vt-box" class="vstage"></div>
+  </section>
+
+  <!-- Geteilte Liste -->
+  <section id="v-liste" hidden aria-label="Geteilte Liste">
+    <div id="sl-head"></div>
+    <p class="status" id="sl-status" role="status"></p>
+    <div class="grid" id="sl-grid"></div>
   </section>
 
   <!-- Statistik -->
@@ -225,6 +279,17 @@
       <div class="row" id="pf-confirm" hidden style="margin-top:10px" role="alertdialog" aria-label="Profil löschen bestätigen"></div>
     </div>
     <div class="panelbox">
+      <h2>Kinderschutz</h2>
+      <p id="pin-info">Mit einer PIN kann aus einem Profil mit Altersgrenze niemand ohne Erlaubnis in ein anderes Profil oder in die Einstellungen wechseln.</p>
+      <form class="row" id="pin-form">
+        <label class="vh" for="pin-new">Neue PIN</label>
+        <input id="pin-new" type="password" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" placeholder="4–6 Ziffern" autocomplete="off">
+        <button type="submit">PIN speichern</button>
+        <button type="button" id="pin-off" hidden>PIN entfernen</button>
+      </form>
+      <p class="status" id="pin-status" role="status" style="margin-top:10px"></p>
+    </div>
+    <div class="panelbox">
       <h2>Geräte synchronisieren</h2>
       <p id="y-info"></p>
       <form class="row" id="y-form">
@@ -257,6 +322,29 @@
         <button type="button" id="x-json">Sicherung herunterladen</button>
         <button type="button" id="x-csv">Aktuelle Liste als CSV</button>
       </div>
+    </div>
+    <div class="panelbox">
+      <h2>Sicherungen</h2>
+      <p>Der Worker sichert deine Daten jede Woche automatisch und hebt die letzten zehn Stände auf. Beim Zurückholen werden sie mit deinem aktuellen Stand zusammengeführt, es geht nichts verloren.</p>
+      <div class="row"><button type="button" id="bk-now">Jetzt sichern</button><button type="button" id="bk-load">Sicherungen anzeigen</button></div>
+      <div class="backups" id="bk-list"></div>
+      <p class="status" id="bk-status" role="status" style="margin-top:10px"></p>
+    </div>
+    <div class="panelbox">
+      <h2>Trakt</h2>
+      <p id="tr-info">Holt „Gesehen“ und deinen Serien-Stand automatisch aus Trakt, z. B. von deinem Fernseher oder anderen Apps.</p>
+      <div class="row" id="tr-tools"></div>
+      <div id="tr-code"></div>
+      <p class="status" id="tr-status" role="status" style="margin-top:10px"></p>
+    </div>
+    <div class="panelbox">
+      <h2>Kino</h2>
+      <p>Für den Knopf „Vorstellungen suchen“ bei Filmen, die gerade im Kino laufen.</p>
+      <form class="row" id="city-form">
+        <label class="vh" for="city">Deine Stadt</label>
+        <input id="city" type="text" maxlength="40" placeholder="Deine Stadt, z. B. Bern" autocomplete="address-level2">
+        <button type="submit">Speichern</button>
+      </form>
     </div>
     <div class="panelbox">
       <h2>Länder vergleichen</h2>
@@ -351,6 +439,30 @@
       <button type="button" class="primary" id="imp-go">Importieren</button>
       <button type="button" id="imp-close">Schliessen</button>
     </div>
+  </div>
+</div>
+<div class="modal" id="vmk" hidden>
+  <div class="pick wide" role="dialog" aria-modal="true" aria-labelledby="vmk-title">
+    <h3 id="vmk-title">Filmabend starten</h3>
+    <p>Alle bekommen einen Link, wischen durch die Vorschläge und sehen sofort, worauf ihr euch einigt. Die Abstimmung läuft sieben Tage.</p>
+    <div class="field"><label for="vmk-name">Titel</label><input id="vmk-name" type="text" maxlength="60" value="Filmabend"></div>
+    <div class="field"><label for="vmk-src">Vorschläge aus</label><select id="vmk-src"></select></div>
+    <div class="field"><label for="vmk-n">Anzahl</label><select id="vmk-n"><option>8</option><option selected>12</option><option>16</option><option>20</option></select></div>
+    <label class="toggle" style="margin-bottom:14px"><input type="checkbox" id="vmk-mine" checked> Nur was in unseren Diensten läuft</label>
+    <p class="status" id="vmk-status" role="status" aria-live="polite"></p>
+    <div id="vmk-link"></div>
+    <div class="row"><button type="button" class="primary" id="vmk-go">Abstimmung erstellen</button><button type="button" id="vmk-close">Schliessen</button></div>
+  </div>
+</div>
+<div class="modal" id="pin" hidden>
+  <div class="pick" role="dialog" aria-modal="true" aria-labelledby="pin-title">
+    <h3 id="pin-title">PIN eingeben</h3>
+    <p id="pin-why"></p>
+    <form id="pin-check">
+      <div class="pinpad"><label class="vh" for="pin-in">PIN</label><input id="pin-in" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></div>
+      <p class="status" id="pin-err" role="status"></p>
+      <div class="row" style="justify-content:center"><button class="primary" type="submit">Bestätigen</button><button type="button" id="pin-cancel">Abbrechen</button></div>
+    </form>
   </div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>

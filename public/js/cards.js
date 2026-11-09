@@ -3,13 +3,13 @@ import { S, P, on, profileFsk } from "./state.js";
 import { IMG } from "./constants.js";
 import { esc, titleOf, yearOf, pool } from "./util.js";
 import { regions, certOf } from "./api.js";
-import { remember, isSaved, statusOf, listCount } from "./data.js";
+import { remember, isSaved, statusOf, listCount, ITEMS } from "./data.js";
 
 export const bookmark = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"/></svg>`;
 const saveLabel = (title, saved) => saved ? `„${title}“ ist gemerkt, Listen ändern` : `„${title}“ merken`;
 
 export function cardHTML(it, o = {}){
-  const key = remember(it), type = it.media_type || it.type, saved = isSaved(key), title = titleOf(it);
+  const key = remember(it), type = it.media_type || it.type, saved = isSaved(key), title = titleOf(it), orig = ITEMS.get(key)?.orig || "";
   const poster = it.posterUrl || (it.poster_path || it.poster ? IMG + "w342" + (it.poster_path || it.poster) : "");
   const meta = o.meta ?? `${type === "tv" ? "Serie" : "Film"}${yearOf(it) ? " · " + yearOf(it) : ""}`;
   const chip = o.chip ? `<span class="chip ${o.chip.kind}">${esc(o.chip.text)}</span>` : `<span class="chip wait" aria-hidden="true">·</span>`;
@@ -18,7 +18,7 @@ export function cardHTML(it, o = {}){
     ${o.rank ? `<span class="rank" aria-label="Platz ${o.rank}">${o.rank}</span>` : ""}
     <button class="hit" type="button" aria-label="${esc(title)}, ${esc(meta)}, Details öffnen">
       <span class="poster" aria-hidden="true" style="${poster ? `background-image:url(${esc(poster)})` : ""}"></span>
-      <span class="ct" aria-hidden="true"><b>${esc(title)}</b><small>${esc(meta)}</small></span>
+      <span class="ct" aria-hidden="true"><b>${esc(title)}</b>${orig ? `<small class="orig">${esc(orig)}</small>` : ""}<small>${esc(meta)}</small></span>
     </button>
     ${chip}
     <button class="save${saved ? " on" : ""}" type="button" aria-pressed="${saved}" aria-label="${esc(saveLabel(title, saved))}">${bookmark}</button>
@@ -73,3 +73,37 @@ export function refreshSave(key){
   }
 }
 on("saved", refreshSave);
+
+// Wischen auf dem Handy: nach rechts merken, nach links als gesehen markieren
+export function enableSwipe({right, left}){
+  let st = null, blockClick = false;
+  document.addEventListener("pointerdown", e => {
+    if (e.pointerType !== "touch") return;
+    const c = e.target.closest(".grid > .card, .rail > .card");
+    if (!c || e.target.closest(".save")) return;
+    st = {c, x: e.clientX, y: e.clientY, dx: 0, on: false};
+  }, {passive: true});
+  document.addEventListener("pointermove", e => {
+    if (!st) return;
+    const dx = e.clientX - st.x, dy = e.clientY - st.y;
+    if (!st.on){
+      if (Math.abs(dy) > 14 && Math.abs(dy) > Math.abs(dx)){ st = null; return }
+      if (Math.abs(dx) < 14) return;
+      st.on = true;
+    }
+    st.dx = dx;
+    st.c.style.transform = `translateX(${Math.max(-110, Math.min(110, dx))}px) rotate(${dx / 40}deg)`;
+    st.c.classList.toggle("sw-right", dx > 70); st.c.classList.toggle("sw-left", dx < -70);
+  }, {passive: true});
+  const end = () => {
+    if (!st) return;
+    const {c, dx, on: was} = st; st = null;
+    c.style.transform = ""; c.classList.remove("sw-right", "sw-left");
+    if (!was) return;
+    blockClick = true; setTimeout(() => blockClick = false, 350);
+    if (dx > 70) right(c.dataset.key); else if (dx < -70) left(c.dataset.key);
+  };
+  document.addEventListener("pointerup", end);
+  document.addEventListener("pointercancel", end);
+  document.addEventListener("click", e => { if (blockClick && e.target.closest(".card")){ e.stopPropagation(); e.preventDefault() } }, true);
+}

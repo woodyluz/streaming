@@ -2,8 +2,9 @@
 import { S, P, SYNC_FIELDS, save, emit, touch } from "../state.js";
 import { $, esc, pool, download, toast } from "../util.js";
 import { tmdb } from "../api.js";
-import { remember, setInList, newList, isSaved, inList } from "../data.js";
-import { toQueries, pickResult, likeFromRating } from "../importers.js";
+import { remember, setInList, newList, isSaved, inList, ITEMS } from "../data.js";
+import { toQueries, pickResult } from "../importers.js";
+import { starsFromRating, likeFromStars } from "../stats.js";
 import { mergeAll } from "../merge.js";
 import { openModal, closeModal } from "../a11y.js";
 
@@ -51,7 +52,7 @@ async function run(){
   const label = {"imdb-list": "IMDb-Liste", "imdb-ratings": "IMDb-Bewertungen", "lb-list": "Letterboxd-Merkliste", "lb-watched": "Letterboxd „Gesehen“",
     "lb-ratings": "Letterboxd-Bewertungen", generic: "CSV-Datei", titles: "Titelliste"}[parsed.format] || "Datei";
   let done = 0, added = 0, watched = 0, already = 0;
-  const missing = [];
+  const missing = [], errors = new Map();
   await pool(parsed.items, 4, async q => {
     if (cancel) return;
     try {
@@ -62,15 +63,16 @@ async function run(){
         const pd = P();
         if (!pd.watched[key]){
           const t = q.date && !isNaN(Date.parse(q.date)) ? Date.parse(q.date) : Date.now();
-          const it = {key, type: r.media_type, id: r.id, title: r.title || r.name, poster: r.poster_path, year: (r.release_date || r.first_air_date || "").slice(0, 4)};
-          pd.watched[key] = {...it, t, like: likeFromRating(q.rating)};
+          const it = {...ITEMS.get(key)};
+          const st = starsFromRating(q.rating);
+          pd.watched[key] = {...it, t, stars: st, like: likeFromStars(st)};
           watched++;
         } else already++;
       } else {
         const l = P().lists.find(x => x.id === target);
         if (l && !inList(l, key)){ setInList(target, key, true); added++ } else already++;
       }
-    } catch(e){ missing.push(q.title || q.imdb) }
+    } catch(e){ errors.set(e.message, (errors.get(e.message) || 0) + 1); missing.push(q.title || q.imdb) }
     finally { done++; $("imp-prog").value = done; $("imp-status").textContent = `${label}: ${done} von ${parsed.items.length} geprüft …` }
   });
   touch(); emit("watched"); emit("saved");
@@ -80,7 +82,8 @@ async function run(){
   if (watched) parts.push(`${watched} als gesehen übernommen`);
   if (already) parts.push(`${already} waren schon da`);
   $("imp-status").innerHTML = esc(`${label}: ${parts.join(", ") || "nichts übernommen"}.`) +
-    (missing.length ? `<br>${missing.length} nicht gefunden: ${esc(missing.slice(0, 12).join(", "))}${missing.length > 12 ? " …" : ""}` : "");
+    (missing.length ? `<br>${missing.length} nicht gefunden: ${esc(missing.slice(0, 12).join(", "))}${missing.length > 12 ? " …" : ""}` : "") +
+    (errors.size ? `<br><b>Grund:</b> ${esc([...errors].map(([m, n]) => `${m} (${n}×)`).join(" · "))}` : "");
   toast("Import abgeschlossen");
 }
 

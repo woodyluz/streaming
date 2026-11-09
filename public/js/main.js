@@ -4,7 +4,13 @@ import { COUNTRIES } from "./constants.js";
 import { $, pool, toast } from "./util.js";
 import { regions } from "./api.js";
 import { dropLegacy, cprune } from "./cache.js";
-import { listItems, flatOf } from "./data.js";
+import { listItems, flatOf, backfill, ITEMS, setWatched } from "./data.js";
+import { enableSwipe } from "./cards.js";
+import { restricted, askPin } from "./pin.js";
+import { traktImport } from "./trakt.js";
+import "./views/planner.js";
+import "./views/vote.js";
+import "./views/shared.js";
 import { syncNow, syncReady, writeMeta, notify } from "./sync.js";
 import { onSave, openPicker } from "./picker.js";
 import { route, rerender, setHooks } from "./router.js";
@@ -19,7 +25,28 @@ import { openDetail, closeDetail } from "./views/detail.js";
 import "./views/importer.js";
 import { fskOptions, fillProfileSelect, consumeSync } from "./views/settings.js";
 
-setHooks({openDetail, closeDetail: () => closeDetail(), consumeSync});
+setHooks({openDetail, closeDetail: () => closeDetail(), consumeSync,
+  // Aus eingeschränkten Profilen nur mit PIN in die Einstellungen
+  guard: v => {
+    if (v !== "einstellungen" || !restricted()) return true;
+    askPin("Die Einstellungen sind durch die PIN geschützt.").then(ok => { if (ok) location.hash = "einstellungen" });
+    return false;
+  }});
+
+/* ---------- Hinweis bei falscher Adresse ---------- */
+on("wrongOrigin", () => {
+  const b = $("originBanner");
+  if (!b.hidden) return;
+  const target = S.proxy.replace(/\/+$/, "") + "/" + location.hash;
+  b.innerHTML = `<span>Unter dieser Adresse darf Streamfinder deinen Worker nicht nutzen, deshalb fehlen Daten. Öffne Streamfinder über deine Worker-Adresse.</span><a href="${target}">Zu ${new URL(S.proxy).host} wechseln</a>`;
+  b.hidden = false;
+});
+
+/* ---------- Wischen auf dem Handy ---------- */
+enableSwipe({
+  right: key => onSave(key),
+  left: key => { if (!ITEMS.get(key)) return; setWatched(key, true); toast(`„${ITEMS.get(key).title}“ als gesehen markiert`) }
+});
 
 /* ---------- Karten-Klicks überall ---------- */
 document.addEventListener("click", e => {
@@ -87,6 +114,10 @@ updateBadge();
   route();
   if (hasAuth()){
     checkLists();
-    if (syncReady()){ syncNow(); writeMeta() }
+    if (syncReady()){
+      syncNow(); writeMeta();
+      if (S.meta.__traktOn && Date.now() - (S.meta.__traktLast || 0) > 12 * 3600e3) traktImport().catch(() => {});
+    }
+    setTimeout(() => backfill(60).catch(() => {}), 4000);
   }
 })();

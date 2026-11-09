@@ -2,7 +2,7 @@
 import { S } from "../state.js";
 import { COUNTRIES, H } from "../constants.js";
 import { $, esc, iso, fmtDate, num, yearOf } from "../util.js";
-import { tmdb, saReady, saChanges, SA } from "../api.js";
+import { tmdb, saReady, saChanges, SA, nowPlaying } from "../api.js";
 import { saCatalogs, isSaved, genreMap } from "../data.js";
 import { cardHTML, decorate, fskLimit } from "../cards.js";
 import { register } from "../router.js";
@@ -23,6 +23,7 @@ async function renderNew(){
       () => tmdbRail("movie", {region: S.country, with_release_type: "4", "release_date.gte": iso(-45), "release_date.lte": iso(0), sort_by: "popularity.desc"})],
     ["tnt", "Neue Serien", `Kürzlich gestartet und in ${C} verfügbar`,
       () => tmdbRail("tv", {watch_region: S.country, with_watch_monetization_types: "flatrate|free|ads", "first_air_date.gte": iso(-45), "first_air_date.lte": iso(0), sort_by: "popularity.desc"})],
+    ["kino", "Jetzt im Kino", `Läuft gerade in den Kinos in ${C}. In den Details findest du Vorstellungen.`, async () => (await nowPlaying()).slice(0, 20).map(x => cardHTML({...x, media_type: "movie"}, {chip: {kind: "soon", text: "Im Kino"}})).join("")],
     ["tum", "Bald im Kino und als Stream", "Filme der nächsten drei Monate",
       () => tmdbRail("movie", {region: S.country, with_release_type: "2|3|4", "release_date.gte": iso(1), "release_date.lte": iso(90), sort_by: "popularity.desc"}, true)],
     ["tut", "Neue Serien demnächst", "Starten in den nächsten drei Monaten",

@@ -1,9 +1,9 @@
 // Detailansicht als Seitenblatt
-import { S, P, save } from "../state.js";
+import { S, P, save, profile } from "../state.js";
 import { COUNTRIES, GROUPS, IMG, LANGS } from "../constants.js";
-import { $, esc, fmtDate, num, yearOf, normName, toast, copy } from "../util.js";
-import { titleFull, omdb, omReady, saReady, saShow } from "../api.js";
-import { MINE_NAMES, providerList, remember, listCount, isFollowed, setFollow, setWatched, setLike, setProgress, flatOf } from "../data.js";
+import { $, esc, fmtDate, num, yearOf, normName, toast, copy, debounce } from "../util.js";
+import { titleFull, omdb, omReady, saReady, saShow, nowPlaying } from "../api.js";
+import { MINE_NAMES, providerList, remember, listCount, isFollowed, setFollow, setWatched, setStars, setNote, setProgress, flatOf, origOf, isPriceWatched, setPriceWatch } from "../data.js";
 import { cardHTML, personHTML, decorate, fskLimit } from "../cards.js";
 import { openModal, closeModal, isOpen, keepFocus } from "../a11y.js";
 import { current } from "../router.js";
@@ -73,6 +73,13 @@ function extras(f){
       .catch(err => { const b = $("sa-box"); if (!b) return; if (err.message === "off") b.remove(); else b.querySelector(".empty").textContent = err.message });
   }
   if ($("sim-rail")) decorate($("sim-rail"));
+  if (type === "movie") nowPlaying().then(list => {
+    if (!list.some(m => m.id === +id) || !$("panel").querySelector(".actions") || $("panel").querySelector("[data-kino]")) return;
+    const q = encodeURIComponent(`${f.title} Kino ${S.city || ""} Vorstellungen`.trim());
+    $("panel").querySelector(".actions").insertAdjacentHTML("beforeend", `<a data-kino href="https://www.google.com/search?q=${q}" target="_blank" rel="noopener">Im Kino: Vorstellungen${S.city ? " in " + esc(S.city) : ""}</a>`);
+  }).catch(() => {});
+  const note = $("d-note");
+  if (note) note.addEventListener("input", debounce(() => setNote(type + ":" + id, note.value), 600));
 }
 
 function draw(f, first){
@@ -127,7 +134,7 @@ function html(f){
     <button class="close" type="button" data-close>Schliessen</button>
     <div class="head">
       <span class="poster" aria-hidden="true" style="${f.poster_path ? `background-image:url(${IMG}w342${f.poster_path})` : ""}"></span>
-      <div><h2 id="d-title">${esc(f.title)}</h2>
+      <div><h2 id="d-title">${esc(f.title)}</h2>${origOf(f) ? `<p><i>${esc(origOf(f))}</i></p>` : ""}
         <p>${[type === "tv" ? "Serie" : "Film", yearOf(f), runtime].filter(Boolean).join(" · ")}</p>
         <p>${f.genres.map(g => g.name).slice(0, 3).join(", ")}</p>
         <div class="scores" id="scores">${f.fsk !== null ? `<span class="score fsk">FSK ${f.fsk}</span>` : ""}${f.vote_average ? `<span class="score">TMDB ${num(f.vote_average)}</span>` : ""}</div>
@@ -137,11 +144,15 @@ function html(f){
     <div class="actions">
       <button type="button" class="${nLists ? "" : "primary"}" data-pick="${key}" data-fk="pick">${nLists ? (nLists > 1 ? `In ${nLists} Listen` : "Gemerkt") : "Merken"}</button>
       <button type="button" aria-pressed="${!!w}" data-act="seen" data-fk="seen">Gesehen</button>
-      ${w ? `<button type="button" aria-pressed="${w.like === 1}" data-act="like" data-v="1" data-fk="like">Gefällt mir</button><button type="button" aria-pressed="${w.like === -1}" data-act="like" data-v="-1" data-fk="dislike">Nicht mein Fall</button>` : ""}
+
       ${type === "tv" ? `<button type="button" aria-pressed="${followed}" data-act="follow" data-fk="follow">${followed ? "Folge ich" : "Folgen"}</button>` : ""}
       ${trailer ? `<a href="https://www.youtube.com/watch?v=${esc(trailer.key)}" target="_blank" rel="noopener">Trailer</a>` : ""}
+      ${saReady() ? `<button type="button" aria-pressed="${isPriceWatched(key)}" data-act="pwatch" data-fk="pwatch">${isPriceWatched(key) ? "Preis wird beobachtet" : "Preis beobachten"}</button>` : ""}
       <button type="button" data-act="share" data-fk="share">Teilen</button>
     </div>
+    ${w ? `<div class="rate"><p><b>Deine Bewertung</b> · gesehen ${fmtDate(w.t, true)}</p>
+      <div class="stars" role="group" aria-label="Sterne vergeben">${[1, 2, 3, 4, 5].map(n => `<button type="button" class="${(w.stars || 0) >= n ? "on" : ""}" data-act="star" data-v="${n}" data-fk="star${n}" aria-pressed="${w.stars === n}" aria-label="${n} von 5 Sternen">★</button>`).join("")}</div>
+      <label class="vh" for="d-note">Notiz</label><textarea id="d-note" class="note" maxlength="500" placeholder="Notiz für dich, z. B. mit wem du ihn geschaut hast">${esc(w.note || "")}</textarea></div>` : ""}
     ${prog}
     ${f.overview ? `<p class="overview">${esc(f.overview)}</p>` : ""}
     ${credits ? `<div class="credits">${credits}</div>` : ""}
@@ -177,7 +188,11 @@ $("sheet").addEventListener("click", async e => {
   if (!b || !curF) return;
   const key = curF.media_type + ":" + curF.id;
   if (b.dataset.act === "seen"){ const on_ = !P().watched[key]; setWatched(key, on_); toast(on_ ? "Als gesehen markiert" : "Markierung entfernt") }
-  if (b.dataset.act === "like") setLike(key, +b.dataset.v);
+  if (b.dataset.act === "star") setStars(key, +b.dataset.v);
+  if (b.dataset.act === "pwatch"){
+    const on_ = !isPriceWatched(key); setPriceWatch(key, on_, {title: curF.title, type: curF.media_type, id: curF.id});
+    toast(on_ ? "Du bekommst eine Mitteilung, wenn der Titel günstiger wird oder in deinem Abo landet." : "Preis wird nicht mehr beobachtet");
+  }
   if (b.dataset.act === "follow"){ const on_ = !isFollowed(key); setFollow(key, on_); toast(on_ ? "Du folgst der Serie. Neue Folgen erscheinen im Kalender." : "Du folgst der Serie nicht mehr") }
   if (b.dataset.act === "share"){
     const url = location.origin + location.pathname + `#t-${curF.media_type}-${curF.id}`;

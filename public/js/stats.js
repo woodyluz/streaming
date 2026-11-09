@@ -99,3 +99,24 @@ export function verdict(sv){
   if (sv.others[0]) parts.push(`Nicht abonniert: Bei ${sv.others[0].name} liefen ${sv.others[0].count} deiner Titel.`);
   return parts.join(" ");
 }
+
+// Jahresrückblick für ein Jahr
+export function yearReview(watched, full, year){
+  const list = watched.filter(w => new Date(w.t).getFullYear() === year).sort((a, b) => a.t - b.t);
+  if (!list.length) return null;
+  const o = overview(list, full, {});
+  const genres = topGenres(list, full, 3);
+  const people = topPeople(list, full, 1);
+  const months = new Array(12).fill(0);
+  for (const w of list) months[new Date(w.t).getMonth()]++;
+  const topMonth = months.indexOf(Math.max(...months));
+  const rated = list.filter(w => w.stars).sort((a, b) => b.stars - a.stars || b.t - a.t);
+  const loved = rated.length ? rated[0] : list.filter(w => w.like === 1).pop() || null;
+  return {year, count: list.length, movies: o.movies, series: o.series, hours: o.hours, genres, person: people[0] || null,
+    topMonth: MONTHS[topMonth], topMonthCount: months[topMonth], first: list[0], last: list[list.length - 1], best: loved,
+    avgStars: rated.length ? Math.round(rated.reduce((a, w) => a + w.stars, 0) / rated.length * 10) / 10 : null};
+}
+
+// Sterne (1–5) ↔ „Gefällt mir“
+export const likeFromStars = s => !s ? 0 : s >= 4 ? 1 : s <= 2 ? -1 : 0;
+export const starsFromRating = r => r == null || !(r > 0) ? 0 : Math.min(5, Math.max(1, Math.round(r / 2)));

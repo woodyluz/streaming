@@ -4,7 +4,7 @@ import { IMG } from "../constants.js";
 import { $, esc, pool, debounce } from "../util.js";
 import { titleFull, regions } from "../api.js";
 import { listItems, followedSeries, providerList, MINE_NAMES } from "../data.js";
-import { overview, byMonth, topGenres, topPeople, serviceValue, verdict } from "../stats.js";
+import { overview, byMonth, topGenres, topPeople, serviceValue, verdict, yearReview } from "../stats.js";
 import { register, current } from "../router.js";
 
 const MAX = 150;
@@ -36,7 +36,22 @@ async function renderStats(){
 
   const maxM = Math.max(1, ...months.map(m => m.count)), maxG = Math.max(1, ...genres.map(g => g.count));
   const tile = (n, t) => `<div class="tile"><b>${n.toLocaleString("de-CH")}</b><span>${t}</span></div>`;
-  let html = `<h2 class="sec">Dein Überblick</h2><p class="sub">Profil „${esc((S.profiles.find(p => p.id === S.profile) || {}).name || "")}“</p>
+  const years = [...new Set(watched.map(w => new Date(w.t).getFullYear()))].sort((a, b) => b - a);
+  const y = recapYear ?? (years.includes(new Date().getFullYear()) ? new Date().getFullYear() : years[0]);
+  const rv = yearReview(watched, full, y);
+  let recap = "";
+  if (rv){
+    const facts = [rv.genres[0] ? `Dein Genre: <b>${esc(rv.genres[0].name)}</b>${rv.genres[1] ? ", danach " + esc(rv.genres[1].name) : ""}` : "",
+      rv.best ? `Dein Höhepunkt: <b>${esc(rv.best.title)}</b>${rv.best.stars ? " (" + "★".repeat(rv.best.stars) + ")" : ""}` : "",
+      rv.person ? `Am häufigsten gesehen: <b>${esc(rv.person.name)}</b> (${rv.person.count}×)` : "",
+      `Stärkster Monat: <b>${rv.topMonth}</b> mit ${rv.topMonthCount} ${rv.topMonthCount === 1 ? "Titel" : "Titeln"}`,
+      `Angefangen mit „${esc(rv.first.title)}“, zuletzt „${esc(rv.last.title)}“`,
+      rv.avgStars ? `Im Schnitt vergibst du ${String(rv.avgStars).replace(".", ",")} Sterne` : ""].filter(Boolean);
+    recap = `<section class="recap" aria-labelledby="recap-h"><h2 id="recap-h">Dein Filmjahr ${y}</h2><p>Profil „${esc((S.profiles.find(p => p.id === S.profile) || {}).name || "")}“${years.length > 1 ? ` · <label class="vh" for="recap-year">Jahr</label><select id="recap-year" style="padding:3px 6px">${years.map(v => `<option ${v === y ? "selected" : ""}>${v}</option>`).join("")}</select>` : ""}</p>
+      <div class="tiles">${tile(rv.count, "Titel gesehen")}${tile(rv.movies, "Filme")}${tile(rv.series, "Serien")}${tile(rv.hours, "Stunden, geschätzt")}</div>
+      <ul>${facts.map(f => `<li>${f}</li>`).join("")}</ul></section>`;
+  }
+  let html = recap + `<h2 class="sec">Dein Überblick</h2><p class="sub">Profil „${esc((S.profiles.find(p => p.id === S.profile) || {}).name || "")}“</p>
     <div class="tiles">${tile(o.movies, "Filme gesehen")}${tile(o.series, "Serien gesehen oder angefangen")}${tile(o.episodes, "Folgen gesehen")}${tile(o.hours, "Stunden vor dem Bildschirm, geschätzt")}</div>`;
   html += `<h2 class="sec">Gesehen pro Monat</h2><p class="sub">Die letzten zwölf Monate, nach dem Tag, an dem du „Gesehen“ markiert hast</p>
     <div class="months" role="img" aria-label="${esc(months.map(m => `${m.label}: ${m.count}`).join(", "))}">${months.map(m => `<div class="month"><em>${m.count || ""}</em><i style="height:${Math.round(m.count / maxM * 100)}%"></i></div>`).join("")}</div>
@@ -57,6 +72,8 @@ async function renderStats(){
   $("st-box").innerHTML = html;
 }
 const savePrices = debounce(() => changed("prices"), 600);
+let recapYear = null;
+$("st-box").addEventListener("change", e => { if (e.target.id === "recap-year"){ recapYear = +e.target.value; renderStats() } });
 $("st-box").addEventListener("input", e => {
   const inp = e.target.closest("[data-price]"); if (!inp) return;
   const id = inp.dataset.price, v = parseFloat(inp.value.replace(",", "."));

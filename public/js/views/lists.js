@@ -3,7 +3,8 @@ import { S, P, save, on } from "../state.js";
 import { COUNTRIES } from "../constants.js";
 import { $, esc, fmtDate, pool, toast, download } from "../util.js";
 import { titleFull } from "../api.js";
-import { newList, renameList, deleteList, listItems, genreMap } from "../data.js";
+import { newList, renameList, deleteList, listItems, genreMap, backfill } from "../data.js";
+import { shareList, unshareList, sharedId } from "./shared.js";
 import { cardHTML, decorate } from "../cards.js";
 import { toCSV } from "../importers.js";
 import { register, current } from "../router.js";
@@ -42,7 +43,9 @@ async function renderLists(){
     + `<button type="button" data-list="__seen" aria-pressed="${cur() === "__seen"}">Gesehen<span>${seenN}</span></button>`
     + `<button type="button" id="l-add">+ Neue Liste</button>`;
   const list = pd.lists.find(l => l.id === cur());
-  $("l-tools").innerHTML = (list ? `<button type="button" id="l-rename">Umbenennen</button>${pd.lists.length > 1 ? `<button type="button" id="l-delete">Liste löschen</button>` : ""}` : "")
+  $("l-tools").innerHTML = (list ? `<button type="button" id="l-rename">Umbenennen</button>${pd.lists.length > 1 ? `<button type="button" id="l-delete">Liste löschen</button>` : ""}
+      <button type="button" id="l-share">${sharedId(list.id) ? "Geteilten Link aktualisieren" : "Liste teilen"}</button>${sharedId(list.id) ? `<button type="button" id="l-unshare">Nicht mehr teilen</button>` : ""}
+      ${list.items.length >= 2 ? `<button type="button" data-vote="l:${list.id}">Filmabend aus dieser Liste</button>` : ""}` : "")
     + `<button type="button" data-import>Importieren</button><button type="button" id="l-export">Als CSV exportieren</button>`;
   $("l-form").hidden = !mode; $("l-confirm").hidden = true;
   fillGenreFilter();
@@ -79,8 +82,8 @@ async function renderLists(){
     const meta = m(w.key), bits = [w.type === "tv" ? "Serie" : "Film", w.year];
     if (sort === "rating" && meta.va) bits.push("★ " + meta.va.toFixed(1).replace(".", ","));
     if (sort === "runtime" && meta.rt) bits.push(meta.rt + " Min." + (w.type === "tv" ? " pro Folge" : ""));
-    if (!list) bits.push("gesehen " + fmtDate(w.t) + (w.like === 1 ? " · gefällt mir" : w.like === -1 ? " · nicht mein Fall" : ""));
-    return cardHTML({media_type: w.type, id: w.id, title: w.title, poster_path: w.poster, posterUrl: w.posterUrl, year: w.year}, {meta: bits.filter(Boolean).join(" · ")});
+    if (!list) bits.push("gesehen " + fmtDate(w.t) + (w.stars ? " · " + "★".repeat(w.stars) : w.like === 1 ? " · gefällt mir" : w.like === -1 ? " · nicht mein Fall" : ""));
+    return cardHTML({media_type: w.type, id: w.id, title: w.title, poster_path: w.poster, posterUrl: w.posterUrl, year: w.year, orig: w.orig}, {meta: bits.filter(Boolean).join(" · ")});
   }).join("");
   const shownText = n => `${n}${n !== total ? ` von ${total}` : ""} Titel`;
   $("l-status").textContent = `${shownText(items.length)} · Verfügbarkeit in ${COUNTRIES[S.country]}`;
@@ -90,6 +93,7 @@ async function renderLists(){
   const cards = [...g.children];
   if (onlyMine) for (const c of cards) if (c.dataset.kind !== "mine") c.hidden = true;
   if (sort === "avail") cards.sort((a, b) => (order[a.dataset.kind] ?? 4) - (order[b.dataset.kind] ?? 4)).forEach(c => g.appendChild(c));
+  if (items.some(i => !i.poster || i.orig === undefined)) backfill(40);
   const visible = cards.filter(c => !c.hidden).length, mineN = cards.filter(c => c.dataset.kind === "mine").length;
   $("l-status").textContent = onlyMine ? `${visible} Titel in deinen Diensten` : `${shownText(visible)} · ${S.mine.length ? `${mineN} davon in deinen Diensten` : `Verfügbarkeit in ${COUNTRIES[S.country]}`}`;
 }
@@ -103,6 +107,8 @@ $("l-tools").addEventListener("click", e => {
   const list = P().lists.find(l => l.id === cur());
   if (e.target.id === "l-export") return exportCSV();
   if (!list) return;
+  if (e.target.id === "l-share") return shareList(list.id).then(() => renderLists());
+  if (e.target.id === "l-unshare") return unshareList(list.id).then(() => renderLists());
   if (e.target.id === "l-rename"){ mode = "rename"; $("l-form").hidden = false; $("l-name").value = list.name; $("l-name").focus() }
   if (e.target.id === "l-delete"){
     $("l-confirm").innerHTML = `<span>Liste „${esc(list.name)}“ mit ${list.items.length} Titeln löschen?</span><button type="button" class="primary" id="l-del-yes">Löschen</button><button type="button" id="l-del-no">Abbrechen</button>`;
@@ -148,3 +154,4 @@ export function updateBadge(){
 }
 on("saved", () => { updateBadge(); if (current() === "listen") renderLists() });
 on("profile", updateBadge);
+on("backfilled", () => { if (current() === "listen") renderLists() });

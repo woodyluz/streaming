@@ -185,3 +185,33 @@ test("Gemeinsame Liste: Gäste ohne Passwort fügen hinzu und entfernen, sehen k
   await me.locator("#l-cbstop").click();
   await expect(me.locator("#l-collab")).toBeHidden();
 });
+
+test("Plakate: fehlende werden nachgeladen, veraltete ersetzt, sonst Titel als Ersatz", async ({page}) => {
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
+  await page.route(/image\.tmdb\.org/, r => /\/p\d+(-alt)?\.jpg$/.test(r.request().url())
+    ? r.fulfill({status: 200, contentType: "image/png", body: png, headers: {"Access-Control-Allow-Origin": "*"}})
+    : r.fulfill({status: 404, body: "weg"}));
+  // Gespeicherte Liste mit veraltetem, fehlendem und unauffindbarem Plakat
+  await page.goto("/");
+  await page.evaluate(() => {
+    const items = [{key: "movie:2", type: "movie", id: 2, title: "Film 2", poster: "/veraltet.jpg", added: 3},
+      {key: "movie:4", type: "movie", id: 4, title: "Film 4", poster: null, added: 2},
+      {key: "movie:13", type: "movie", id: 13, title: "Film 13", poster: null, added: 1}];
+    localStorage.setItem("sf:profiles", JSON.stringify([{id: "main", name: "Ich"}]));
+    localStorage.setItem("sf:pdata", JSON.stringify({main: {lists: [{id: "main", name: "Merkliste", items}], watched: {}, progress: {}, follow: {}, pwatch: {}, tomb: {}}}));
+  });
+  await page.goto("/#listen");
+  await page.reload();
+  const img = id => page.locator(`#l-grid .card[data-id='${id}'] .poster img`);
+  await expect(img(2)).toHaveAttribute("src", /\/p2\.jpg$/);
+  await expect(img(4)).toHaveAttribute("src", /\/p4\.jpg$/);
+  await expect(img(13)).toHaveAttribute("src", /\/p13-alt\.jpg$/);
+  for (const id of [2, 4, 13]) await expect.poll(() => img(id).evaluate(i => i.naturalWidth)).toBeGreaterThan(0);
+  // Das neue Plakat wird gespeichert
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("sf:pdata")).main.lists[0].items.map(i => i.poster))).toEqual(["/p2.jpg", "/p4.jpg", "/p13-alt.jpg"]);
+  // Gar kein Bild: Titel bleibt sichtbar
+  await page.route(/image\.tmdb\.org/, r => r.fulfill({status: 404, body: "weg"}));
+  await page.goto("/#entdecken");
+  await expect(page.locator("#d-grid .card").first().locator(".poster .ph")).toHaveText("Film 1");
+  await expect(page.locator("#d-grid .card").first().locator(".poster img")).toHaveCount(0);
+});

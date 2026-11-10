@@ -5,6 +5,7 @@ import { $, esc, num, short, titleOf, yearOf, pool } from "../util.js";
 import { tmdb, titleFull, regionOf, regions, certOf, workerApi } from "../api.js";
 import { parseMood, sanitizeMood, moodParams } from "../mood.js";
 import { cardHTML, decorate } from "../cards.js";
+import { posterHTML } from "../posters.js";
 import { statusOf, genreMap, remember, isSaved, listItems, listCount } from "../data.js";
 import { fskLimit } from "../cards.js";
 import { scoreCandidates, reasonsFor } from "../recommend.js";
@@ -54,7 +55,7 @@ async function surprise(){
       (x.genre_ids || []).slice(0, 3).map(g => gm.get(g)).filter(Boolean).join(", ")].filter(Boolean);
     const n = listCount(key);
     out.innerHTML = `<div class="big">
-      <span class="poster" aria-hidden="true" style="${x.poster_path ? `background-image:url(${IMG}w342${x.poster_path})` : ""}"></span>
+      ${posterHTML(x.poster_path, {title: titleOf(x), key})}
       <div><h3>${esc(titleOf(x))}</h3><p class="sub">${R.type === "tv" ? "Serie" : "Film"}${yearOf(x) ? " · " + yearOf(x) : ""}</p>
       <ul>${why.map(w => `<li>${esc(w)}</li>`).join("")}</ul>
       ${x.overview ? `<p>${esc(short(x.overview, 280))}</p>` : ""}
@@ -120,9 +121,9 @@ function drawRecs({seeds, recs, disliked}){
     ? `Ausgehend von ${seeds.map(s => "„" + s.title + "“").join(", ")}${disliked ? `. Ähnliches wie deine ${disliked} „Nicht mein Fall“-Titel wird abgewertet.` : ""}`
     : "Gerade keine neuen Empfehlungen gefunden.";
   $("e-list").innerHTML = recs.map(c => {
-    const key = remember(c.r), poster = c.r.poster_path ? IMG + "w342" + c.r.poster_path : "", n = listCount(key);
+    const key = remember(c.r), n = listCount(key);
     return `<article class="reco" data-key="${key}" aria-labelledby="rh-${c.r.id}">
-      <span class="poster" aria-hidden="true" style="${poster ? `background-image:url(${poster})` : ""}"></span>
+      ${posterHTML(c.r.poster_path, {title: titleOf(c.r), key})}
       <div><p class="why">${esc(c.reasons.why)}</p>
       <h3 id="rh-${c.r.id}">${esc(titleOf(c.r))} <span class="sub" style="font-family:var(--body);font-size:13px">${c.r.media_type === "tv" ? "Serie" : "Film"}${yearOf(c.r) ? " · " + yearOf(c.r) : ""}</span></h3>
       <ul>${c.reasons.list.map(r => `<li>${esc(r)}</li>`).join("")}</ul>

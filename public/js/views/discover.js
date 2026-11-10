@@ -5,6 +5,7 @@ import { $, esc, iso, fmtDate, short, yearOf } from "../util.js";
 import { tmdb, personFull } from "../api.js";
 import { providerList, genreMap } from "../data.js";
 import { cardHTML, personHTML, decorate, fskLimit } from "../cards.js";
+import { posterHTML } from "../posters.js";
 import { register } from "../router.js";
 
 export function segInit(id, onPick){
@@ -129,7 +130,7 @@ async function loadPerson(id){
     if (!p.cast.length) PS.tab = "crew";
     const life = [p.birthday ? "Geboren " + fmtDate(p.birthday, true) : "", p.place || "", p.deathday ? "Gestorben " + fmtDate(p.deathday, true) : ""].filter(Boolean).join(" · ");
     $("p-head").innerHTML = `<div class="phead">
-      <span class="poster" aria-hidden="true" style="${p.profile_path ? `background-image:url(${IMG}w342${p.profile_path})` : ""}"></span>
+      ${posterHTML(p.profile_path, {title: p.name})}
       <div><h2>${esc(p.name)}</h2><p>${esc(deptName(p.dept) || p.dept || "")}</p>${life ? `<p>${esc(life)}</p>` : ""}
       ${p.bio ? `<p class="bio">${esc(short(p.bio, 600))}</p>` : ""}</div></div>`;
     $("p-tabs").innerHTML = [["cast", "Vor der Kamera", p.cast.length], ["crew", "Hinter der Kamera", p.crew.length]]

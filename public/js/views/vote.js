@@ -6,6 +6,7 @@ import { tmdb, regions, workerApi, certOf } from "../api.js";
 import { statusOf, providerList, genreMap } from "../data.js";
 import { fskLimit } from "../cards.js";
 import { voteResult } from "../vote.js";
+import { posterHTML } from "../posters.js";
 import { openModal, closeModal } from "../a11y.js";
 import { register, current } from "../router.js";
 import { syncReady } from "../sync.js";
@@ -121,7 +122,7 @@ function next(){
   const it = left[0], pos = V.doc.items.length - left.length + 1;
   $("vt-box").innerHTML = `<p class="vprog">${esc(V.doc.title)} · ${pos} von ${V.doc.items.length}</p>
     <div class="vcard" id="vt-card">
-      <span class="poster" aria-hidden="true" style="${it.poster ? `background-image:url(${IMG}w500${it.poster})` : ""}"></span>
+      ${posterHTML(it.poster, {size: "w500", title: it.title, key: it.key})}
       <div class="vbody"><h3>${esc(it.title)}</h3><p>${[it.type === "tv" ? "Serie" : "Film", it.year, it.info].filter(Boolean).map(esc).join(" · ")}</p>
       ${it.overview ? `<p style="margin-top:8px;color:var(--fg)">${esc(it.overview)}</p>` : ""}</div>
     </div>
@@ -146,12 +147,12 @@ async function results(){
     const names = parts.map(p => p.name + (p.done ? "" : " (noch dabei)")).join(", ");
     let html = `<h2 class="sec">${esc(V.doc.title)}</h2><p class="sub">${r.n} ${r.n === 1 ? "Person hat" : "Personen haben"} abgestimmt${names ? ": " + esc(names) : ""}.</p>`;
     if (r.match){
-      html += `<div class="match"><span class="poster" aria-hidden="true" style="${r.match.poster ? `background-image:url(${IMG}w185${r.match.poster})` : ""}"></span>
+      html += `<div class="match">${posterHTML(r.match.poster, {size: "w185", title: r.match.title, key: r.match.key})}
         <div><p style="margin:0 0 4px;font-weight:600">Treffer! Alle wollen das sehen:</p><h3>${esc(r.match.title)}</h3><p style="margin:0">${esc([r.match.year, r.match.info].filter(Boolean).join(" · "))}</p>
         <p style="margin:8px 0 0"><a href="#t-${r.match.type}-${r.match.id}">Wo läuft das?</a></p></div></div>`;
     } else if (r.n >= 2) html += `<p class="hint">Noch kein Titel, den alle mögen.${r.possible ? ` ${r.possible} sind noch möglich.` : ""}</p>`;
     else html += `<p class="hint">Sobald jemand anders mitmacht, siehst du hier, worauf ihr euch einigt. Schick den Link weiter.</p>`;
-    html += r.ranking.length ? `<div class="vrank">${r.ranking.slice(0, 10).map(x => `<div class="vrow"><span class="poster" aria-hidden="true" style="${x.poster ? `background-image:url(${IMG}w92${x.poster})` : ""}"></span>
+    html += r.ranking.length ? `<div class="vrank">${r.ranking.slice(0, 10).map(x => `<div class="vrow">${posterHTML(x.poster, {size: "w92", key: x.key})}
       <div><b>${esc(x.title)}</b><br><small>${esc(x.yesNames.join(", "))}</small></div><b aria-label="${x.yes} Ja-Stimmen">♥ ${x.yes}</b></div>`).join("")}</div>` : "";
     const url = location.origin + location.pathname + "#abstimmen-" + V.id;
     html += `<div class="linkbox" style="justify-content:center"><button type="button" id="vt-share">Link teilen</button>${left && !V.doc.closed ? `<button type="button" class="primary" id="vt-go">Weiter abstimmen (${left})</button>` : ""}</div>`;

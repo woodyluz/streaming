@@ -5,6 +5,7 @@ import { $, esc, fmtDate, num, yearOf, normName, toast, copy, debounce } from ".
 import { titleFull, omdb, omReady, saReady, saShow, nowPlaying } from "../api.js";
 import { MINE_NAMES, providerList, remember, listCount, isFollowed, setFollow, setWatched, setStars, setNote, setProgress, flatOf, origOf, isPriceWatched, setPriceWatch } from "../data.js";
 import { cardHTML, personHTML, decorate, fskLimit } from "../cards.js";
+import { posterHTML } from "../posters.js";
 import { openModal, closeModal, isOpen, keepFocus } from "../a11y.js";
 import { current } from "../router.js";
 
@@ -133,7 +134,7 @@ function html(f){
   return `
     <button class="close" type="button" data-close>Schliessen</button>
     <div class="head">
-      <span class="poster" aria-hidden="true" style="${f.poster_path ? `background-image:url(${IMG}w342${f.poster_path})` : ""}"></span>
+      ${posterHTML(f.poster_path, {title: f.title, key})}
       <div><h2 id="d-title">${esc(f.title)}</h2>${origOf(f) ? `<p><i>${esc(origOf(f))}</i></p>` : ""}
         <p>${[type === "tv" ? "Serie" : "Film", yearOf(f), runtime].filter(Boolean).join(" · ")}</p>
         <p>${f.genres.map(g => g.name).slice(0, 3).join(", ")}</p>

@@ -1,6 +1,6 @@
 // Streamfinder Service Worker: App offline verfügbar, Poster zwischenspeichern, Push-Mitteilungen
-const SHELL = "sf-shell-v7", IMGS = "sf-img-v1", META = "sf-meta";
-const FILES = ["./", "./config.js","./css/app.css","./icon-192.png","./icon-512.png","./icon.svg","./index.html","./js/a11y.js","./js/api.js","./js/cache.js","./js/calendar.js","./js/cards.js","./js/constants.js","./js/data.js","./js/importers.js","./js/main.js","./js/merge.js","./js/mood.js","./js/picker.js","./js/pin.js","./js/plan.js","./js/recommend.js","./js/router.js","./js/state.js","./js/stats.js","./js/sync.js","./js/trakt.js","./js/util.js","./js/views/calendar.js","./js/views/collab.js","./js/views/detail.js","./js/views/discover.js","./js/views/foryou.js","./js/views/importer.js","./js/views/lists.js","./js/views/news.js","./js/views/planner.js","./js/views/settings.js","./js/views/shared.js","./js/views/stats.js","./js/views/vote.js","./js/vote.js","./manifest.webmanifest"];
+const SHELL = "sf-shell-v8", IMGS = "sf-img-v2", META = "sf-meta";
+const FILES = ["./", "./config.js","./css/app.css","./icon-192.png","./icon-512.png","./icon.svg","./index.html","./js/a11y.js","./js/api.js","./js/cache.js","./js/calendar.js","./js/cards.js","./js/constants.js","./js/data.js","./js/importers.js","./js/main.js","./js/merge.js","./js/mood.js","./js/picker.js","./js/pin.js","./js/plan.js","./js/posters.js","./js/recommend.js","./js/router.js","./js/state.js","./js/stats.js","./js/sync.js","./js/trakt.js","./js/util.js","./js/views/calendar.js","./js/views/collab.js","./js/views/detail.js","./js/views/discover.js","./js/views/foryou.js","./js/views/importer.js","./js/views/lists.js","./js/views/news.js","./js/views/planner.js","./js/views/settings.js","./js/views/shared.js","./js/views/stats.js","./js/views/vote.js","./js/vote.js","./manifest.webmanifest"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES)).catch(() => {}));
@@ -19,12 +19,15 @@ self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
   const u = new URL(e.request.url);
   if (u.hostname === "image.tmdb.org") {
+    // Nur einwandfrei geladene Bilder aufheben, nie Fehler. Ohne CORS gibt es kein Speichern, das Bild kommt dann direkt.
     e.respondWith(caches.open(IMGS).then(async c => {
-      const hit = await c.match(e.request);
+      const hit = await c.match(e.request.url);
       if (hit) return hit;
-      const r = await fetch(e.request);
-      if (r.ok || r.type === "opaque") { c.put(e.request, r.clone()); trim(c, 500); }
-      return r;
+      try {
+        const r = await fetch(e.request.url, { mode: "cors", credentials: "omit" });
+        if (r.ok && (r.headers.get("content-type") || "").startsWith("image/")) { c.put(e.request.url, r.clone()); trim(c, 600); }
+        return r;
+      } catch (err) { return fetch(e.request); }
     }));
     return;
   }

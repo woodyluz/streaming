@@ -4,20 +4,21 @@ import { IMG } from "./constants.js";
 import { esc, titleOf, yearOf, pool } from "./util.js";
 import { regions, certOf } from "./api.js";
 import { remember, isSaved, statusOf, listCount, ITEMS } from "./data.js";
+import { posterHTML } from "./posters.js";
 
 export const bookmark = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"/></svg>`;
 const saveLabel = (title, saved) => saved ? `„${title}“ ist gemerkt, Listen ändern` : `„${title}“ merken`;
 
 export function cardHTML(it, o = {}){
   const key = remember(it), type = it.media_type || it.type, saved = isSaved(key), title = titleOf(it), orig = ITEMS.get(key)?.orig || "";
-  const poster = it.posterUrl || (it.poster_path || it.poster ? IMG + "w342" + (it.poster_path || it.poster) : "");
+  const pp = it.poster_path || it.poster || null;
   const meta = o.meta ?? `${type === "tv" ? "Serie" : "Film"}${yearOf(it) ? " · " + yearOf(it) : ""}`;
   const chip = o.chip ? `<span class="chip ${o.chip.kind}">${esc(o.chip.text)}</span>` : `<span class="chip wait" aria-hidden="true">·</span>`;
   const badge = S.track[key]?.n && saved ? `<span class="new">Neu für dich</span>` : P().watched[key] ? `<span class="seen">Gesehen</span>` : "";
   return `<article class="card${o.row ? " rowcard" : ""}${o.row && !o.rank ? " norank" : ""}" data-key="${key}" data-type="${type}" data-id="${it.id}"${o.chip ? ` data-preset="${o.chip.kind}"` : ""}${o.row ? ' role="listitem"' : ""}>
     ${o.rank ? `<span class="rank" aria-label="Platz ${o.rank}">${o.rank}</span>` : ""}
     <button class="hit" type="button" aria-label="${esc(title)}, ${esc(meta)}, Details öffnen">
-      <span class="poster" aria-hidden="true" style="${poster ? `background-image:url(${esc(poster)})` : ""}"></span>
+      ${posterHTML(pp, {url: it.posterUrl || null, title, key})}
       <span class="ct" aria-hidden="true"><b>${esc(title)}</b>${orig ? `<small class="orig">${esc(orig)}</small>` : ""}<small>${esc(meta)}</small></span>
     </button>
     ${chip}

@@ -22,7 +22,7 @@ const genres = [{id: 18, name: "Drama"}, {id: 35, name: "Komödie"}];
 
 function full(type, id){
   const base = type === "movie" ? movie(id) : tv(id);
-  const d = {...base, genres: id % 2 ? [genres[1]] : [genres[0]], videos: {results: [{site: "YouTube", type: "Trailer", key: "abc", iso_639_1: "de"}]},
+  const d = {...base, poster_path: id === 13 ? null : `/p${id}.jpg`, genres: id % 2 ? [genres[1]] : [genres[0]], videos: {results: [{site: "YouTube", type: "Trailer", key: "abc", iso_639_1: "de"}]},
     "watch/providers": {results: {CH: region(id), DE: region(id + 1)}}, external_ids: {imdb_id: "tt" + (1000 + id)},
     credits: {cast: [{id: 500, name: "Anna Muster", character: "Heldin", profile_path: null}, {id: 600 + id, name: `Person ${id}`, character: "Nebenrolle"}],
       crew: [{id: 900, name: "Rita Regie", job: "Director"}]},
@@ -62,6 +62,7 @@ function tmdb(path, q){
   if ((m = path.match(/^\/(movie|tv)\/(\d+)\/watch\/providers$/))) return {results: {CH: region(+m[2])}};
   if ((m = path.match(/^\/movie\/(\d+)\/release_dates$/))) return {results: [{iso_3166_1: "DE", release_dates: [{certification: String(fsk(+m[1]))}]}]};
   if ((m = path.match(/^\/tv\/(\d+)\/content_ratings$/))) return {results: [{iso_3166_1: "DE", rating: String(fsk(+m[1]))}]};
+  if ((m = path.match(/^\/(movie|tv)\/(\d+)\/images$/))) return {posters: +m[2] === 13 ? [{file_path: "/p13-alt.jpg"}] : []};
   if ((m = path.match(/^\/(movie|tv)\/(\d+)$/))) return full(m[1], +m[2]);
   return null;
 }

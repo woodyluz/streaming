@@ -9,7 +9,7 @@ import { posterHTML } from "../posters.js";
 import { statusOf, genreMap, remember, isSaved, listItems, listCount } from "../data.js";
 import { fskLimit } from "../cards.js";
 import { scoreCandidates, reasonsFor } from "../recommend.js";
-import { register, current } from "../router.js";
+import { register } from "../router.js";
 import { segInit, fillGenres, provParams, fskParams } from "./discover.js";
 
 /* ---------- Was schaue ich heute? ---------- */
@@ -69,11 +69,8 @@ $("r-go").addEventListener("click", surprise);
 
 /* ---------- Empfehlungen ---------- */
 let recsCache = null;
-let mode = "mix"; // "mix" | "top" | "picked"
-const picked = new Map(); // key → Titel, der in den Details als Ausgangspunkt gewählt wurde
 const recsShown = new Set(); // bereits empfohlene Titel, damit „Neu berechnen“ andere zeigt
 const resetRecs = () => { recsCache = null; recsShown.clear() };
-on("similar", it => { picked.set(it.key, it); mode = "picked"; resetRecs(); syncMode(); location.hash = "#fuerdich"; if (current() === "fuerdich") renderForYou() });
 on("watched", resetRecs);
 on("profile", () => { resetRecs(); R.shown.clear(); $("r-out").innerHTML = "" });
 on("settings", resetRecs);
@@ -85,16 +82,9 @@ async function buildRecs(refresh = false){
   // Beim Neuberechnen wird aus einem größeren Pool zufällig gewählt, sonst die jüngsten
   const pick = (arr, n) => refresh ? shuffle(arr.slice(0, n * 3)).slice(0, n) : arr.slice(0, n);
   const W = Object.values(P().watched).filter(w => w.type && w.id);
-  let seeds;
-  if (mode === "picked") seeds = [...picked.values()].map(w => ({...w, how: "picked"}));
-  else if (mode === "top"){
-    // Beste Bewertungen zuerst; ohne Sterne zählen „Gefällt mir“-Titel
-    const rated = W.filter(w => (w.stars || 0) >= 4).sort((a, b) => b.stars - a.stars || b.t - a.t);
-    const liked = W.filter(w => w.like === 1 && !(w.stars >= 4)).sort((a, b) => b.t - a.t);
-    seeds = pick(rated.concat(liked), 6).map(w => ({...w, how: "liked"}));
-  } else seeds = pick(W.filter(w => w.like === 1).sort((a, b) => b.t - a.t), 5).map(w => ({...w, how: "liked"}));
-  if (mode === "mix" && seeds.length < 4) seeds = seeds.concat(pick(W.filter(w => w.like !== -1 && !seeds.some(s => s.key === w.key)).sort((a, b) => b.t - a.t), 4 - seeds.length).map(w => ({...w, how: "seen"})));
-  if (mode === "mix" && seeds.length < 4) seeds = seeds.concat(pick(listItems().filter(i => !seeds.some(s => s.key === i.key)).sort((a, b) => (b.added || 0) - (a.added || 0)), 4 - seeds.length).map(i => ({...i, how: "list"})));
+  let seeds = pick(W.filter(w => w.like === 1).sort((a, b) => b.t - a.t), 5).map(w => ({...w, how: "liked"}));
+  if (seeds.length < 4) seeds = seeds.concat(pick(W.filter(w => w.like !== -1 && !seeds.some(s => s.key === w.key)).sort((a, b) => b.t - a.t), 4 - seeds.length).map(w => ({...w, how: "seen"})));
+  if (seeds.length < 4) seeds = seeds.concat(pick(listItems().filter(i => !seeds.some(s => s.key === i.key)).sort((a, b) => (b.added || 0) - (a.added || 0)), 4 - seeds.length).map(i => ({...i, how: "list"})));
   if (!seeds.length) return {seeds, recs: []};
   const dislikedW = W.filter(w => w.like === -1).sort((a, b) => b.t - a.t).slice(0, 5);
   const seedFull = new Map(), seedRecs = [], disliked = [], likedGenres = new Map();
@@ -108,7 +98,7 @@ async function buildRecs(refresh = false){
       }
     } catch(e){}
   });
-  const exclude = new Set([...seeds.map(s => s.key), ...Object.keys(P().watched), ...listItems().map(i => i.key), ...(refresh ? recsShown : [])]);
+  const exclude = new Set([...Object.keys(P().watched), ...listItems().map(i => i.key), ...(refresh ? recsShown : [])]);
   let ranked = scoreCandidates({seedRecs, disliked, exclude, likedGenres}).slice(0, refresh ? 24 : 16);
   if (refresh) ranked = ranked.map(c => ({...c, score: c.score + Math.random() * 3}));
   const reg = await regions(ranked.map(c => ({type: c.r.media_type, id: c.r.id}))).catch(() => new Map());
@@ -132,13 +122,11 @@ async function buildRecs(refresh = false){
 function drawRecs({seeds, recs, disliked}){
   if (!seeds.length){
     $("e-status").textContent = "";
-    $("e-list").innerHTML = `<p class="hint">${mode === "picked" ? "Öffne einen Film oder eine Serie und tippe auf „Ähnliche finden“. Du kannst mehrere Titel sammeln, ich suche dann, was zu allen passt."
-      : mode === "top" ? "Vergib in den Details Sterne (ab 4 Sternen zählt ein Titel als Favorit) oder markiere Titel mit „Gefällt mir“. Daraus berechne ich dann deine Empfehlungen."
-      : "Markiere in den Details Titel als „Gesehen“ und „Gefällt mir“ oder setze sie auf eine Liste. Dann empfehle ich dir hier passende Titel mit Begründung."}</p>`;
+    $("e-list").innerHTML = `<p class="hint">Markiere in den Details Titel als „Gesehen“ und „Gefällt mir“ oder setze sie auf eine Liste. Dann empfehle ich dir hier passende Titel mit Begründung.</p>`;
     return;
   }
   $("e-status").textContent = recs.length
-    ? `${mode === "picked" ? "Ähnlich wie " : mode === "top" ? "Nach deinen Favoriten " : "Ausgehend von "}${seeds.map(s => "„" + s.title + "“").join(", ")}${disliked ? `. Ähnliches wie deine ${disliked} „Nicht mein Fall“-Titel wird abgewertet.` : ""}`
+    ? `Ausgehend von ${seeds.map(s => "„" + s.title + "“").join(", ")}${disliked ? `. Ähnliches wie deine ${disliked} „Nicht mein Fall“-Titel wird abgewertet.` : ""}`
     : "Gerade keine neuen Empfehlungen gefunden.";
   $("e-list").innerHTML = recs.map(c => {
     const key = remember(c.r), n = listCount(key);
@@ -150,22 +138,7 @@ function drawRecs({seeds, recs, disliked}){
       <div class="row"><button type="button" data-open="${key}">Details</button><button type="button" data-pick="${key}" class="${n ? "" : "primary"}">${n ? "Gemerkt" : "Merken"}</button></div></div></article>`;
   }).join("");
 }
-function syncMode(){
-  document.querySelectorAll("#e-mode [data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
-  const box = $("e-seeds");
-  box.hidden = mode !== "picked" || !picked.size;
-  box.innerHTML = [...picked.values()].map(it => `<button type="button" data-unpick="${esc(it.key)}" aria-label="${esc(it.title)} entfernen">${esc(it.title)} ✕</button>`).join("");
-}
-$("e-mode").addEventListener("click", e => {
-  const b = e.target.closest("[data-mode]"); if (!b || b.dataset.mode === mode) return;
-  mode = b.dataset.mode; resetRecs(); syncMode(); renderForYou();
-});
-$("e-seeds").addEventListener("click", e => {
-  const b = e.target.closest("[data-unpick]"); if (!b) return;
-  picked.delete(b.dataset.unpick); resetRecs(); syncMode(); renderForYou();
-});
 async function renderForYou(o){
-  syncMode();
   if (!$("r-genre").options[1]) fillGenres($("r-genre"), R.type, "Egal welches Genre");
   if (recsCache && !o?.force){ drawRecs(recsCache); return }
   $("e-status").textContent = "Suche Empfehlungen …"; $("e-list").innerHTML = "";

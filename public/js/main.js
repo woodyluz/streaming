@@ -19,6 +19,7 @@ import { isOpen } from "./a11y.js";
 import { fillFilters } from "./views/discover.js";
 import "./views/news.js";
 import "./views/foryou.js";
+import "./views/similar.js";
 import { updateBadge } from "./views/lists.js";
 import "./views/calendar.js";
 import "./views/stats.js";

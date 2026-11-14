@@ -12,7 +12,7 @@ export function scoreCandidates({seedRecs, disliked = [], exclude = new Set(), l
       if (exclude.has(key)) return;
       const c = cand.get(key) || {r, key, seeds: [], score: 0, penalty: 0};
       c.seeds.push(seed);
-      c.score += 2 + (14 - Math.min(i, 14)) / 14 * 3 + (seed.how === "liked" ? 1.5 : 0);
+      c.score += 2 + (14 - Math.min(i, 14)) / 14 * 3 + (seed.how === "liked" || seed.how === "picked" ? 1.5 : 0);
       cand.set(key, c);
     });
   }
@@ -51,7 +51,7 @@ export function reasonsFor(c, full, seedFull, {countryName = "", status = null} 
     if (!best || score > best.score) best = {s, g, cast, dir, writer, score};
   }
   const s = best?.s || c.seeds[0];
-  const verb = s.how === "liked" ? "mochtest" : s.how === "seen" ? "gesehen hast" : "auf deiner Liste hast";
+  const verb = s.how === "picked" ? "ausgewählt hast" : s.how === "liked" ? "mochtest" : s.how === "seen" ? "gesehen hast" : "auf deiner Liste hast";
   const out = [];
   if (best?.dir.length) out.push(`Gleiche Regie bzw. Idee: ${best.dir.slice(0, 2).join(", ")}`);
   if (best?.writer.length) out.push(`Drehbuch ebenfalls von ${best.writer.slice(0, 2).join(", ")}`);

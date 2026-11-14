@@ -2,7 +2,7 @@
 import { hasAuth } from "./state.js";
 import { $ } from "./util.js";
 
-export const VIEWS = ["setup", "entdecken", "suche", "neu", "kalender", "top", "fuerdich", "listen", "planer", "statistik", "person", "abstimmen", "liste", "gemeinsam", "einstellungen"];
+export const VIEWS = ["setup", "entdecken", "suche", "neu", "kalender", "top", "fuerdich", "aehnlich", "listen", "planer", "statistik", "person", "abstimmen", "liste", "gemeinsam", "einstellungen"];
 const SPECIAL = ["setup", "person", "abstimmen", "liste", "gemeinsam"];
 const views = {};
 let cur = "", hooks = {};

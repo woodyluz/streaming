@@ -1,5 +1,5 @@
 // Detailansicht als Seitenblatt
-import { S, P, save, profile } from "../state.js";
+import { S, P, save, profile, emit } from "../state.js";
 import { COUNTRIES, GROUPS, IMG, LANGS } from "../constants.js";
 import { $, esc, fmtDate, num, yearOf, normName, toast, copy, debounce } from "../util.js";
 import { titleFull, omdb, omReady, saReady, saShow, nowPlaying } from "../api.js";
@@ -149,6 +149,7 @@ function html(f){
       ${type === "tv" ? `<button type="button" aria-pressed="${followed}" data-act="follow" data-fk="follow">${followed ? "Folge ich" : "Folgen"}</button>` : ""}
       ${trailer ? `<a href="https://www.youtube.com/watch?v=${esc(trailer.key)}" target="_blank" rel="noopener">Trailer</a>` : ""}
       ${saReady() ? `<button type="button" aria-pressed="${isPriceWatched(key)}" data-act="pwatch" data-fk="pwatch">${isPriceWatched(key) ? "Preis wird beobachtet" : "Preis beobachten"}</button>` : ""}
+      <button type="button" data-act="similar" data-fk="similar">Ähnliche finden</button>
       <button type="button" data-act="share" data-fk="share">Teilen</button>
     </div>
     ${w ? `<div class="rate"><p><b>Deine Bewertung</b> · gesehen ${fmtDate(w.t, true)}</p>
@@ -190,6 +191,10 @@ $("sheet").addEventListener("click", async e => {
   const key = curF.media_type + ":" + curF.id;
   if (b.dataset.act === "seen"){ const on_ = !P().watched[key]; setWatched(key, on_); toast(on_ ? "Als gesehen markiert" : "Markierung entfernt") }
   if (b.dataset.act === "star") setStars(key, +b.dataset.v);
+  if (b.dataset.act === "similar"){
+    closeDetail(); emit("similar", {key, type: curF.media_type, id: curF.id, title: curF.title});
+    return;
+  }
   if (b.dataset.act === "pwatch"){
     const on_ = !isPriceWatched(key); setPriceWatch(key, on_, {title: curF.title, type: curF.media_type, id: curF.id});
     toast(on_ ? "Du bekommst eine Mitteilung, wenn der Titel günstiger wird oder in deinem Abo landet." : "Preis wird nicht mehr beobachtet");

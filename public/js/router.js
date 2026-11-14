@@ -47,7 +47,8 @@ export function route(){
   const changedView = v !== cur;
   show(v);
   views[v]?.();
-  if (changedView && h) $("main").focus({preventScroll: true});
+  // Beim Tippen in der Suche den Fokus nicht ins <main> ziehen
+  if (changedView && h && document.activeElement !== $("q")) $("main").focus({preventScroll: true});
 }
 window.addEventListener("hashchange", () => route());
 

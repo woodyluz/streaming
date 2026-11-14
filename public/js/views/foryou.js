@@ -69,16 +69,22 @@ $("r-go").addEventListener("click", surprise);
 
 /* ---------- Empfehlungen ---------- */
 let recsCache = null;
-on("watched", () => { recsCache = null });
-on("profile", () => { recsCache = null; R.shown.clear(); $("r-out").innerHTML = "" });
-on("settings", () => { recsCache = null });
-on("synced", () => { recsCache = null });
+const recsShown = new Set(); // bereits empfohlene Titel, damit „Neu berechnen“ andere zeigt
+const resetRecs = () => { recsCache = null; recsShown.clear() };
+on("watched", resetRecs);
+on("profile", () => { resetRecs(); R.shown.clear(); $("r-out").innerHTML = "" });
+on("settings", resetRecs);
+on("synced", resetRecs);
 
-async function buildRecs(){
+const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]] } return a };
+
+async function buildRecs(refresh = false){
+  // Beim Neuberechnen wird aus einem größeren Pool zufällig gewählt, sonst die jüngsten
+  const pick = (arr, n) => refresh ? shuffle(arr.slice(0, n * 3)).slice(0, n) : arr.slice(0, n);
   const W = Object.values(P().watched).filter(w => w.type && w.id);
-  let seeds = W.filter(w => w.like === 1).sort((a, b) => b.t - a.t).slice(0, 5).map(w => ({...w, how: "liked"}));
-  if (seeds.length < 4) seeds = seeds.concat(W.filter(w => w.like !== -1 && !seeds.some(s => s.key === w.key)).sort((a, b) => b.t - a.t).slice(0, 4 - seeds.length).map(w => ({...w, how: "seen"})));
-  if (seeds.length < 4) seeds = seeds.concat(listItems().filter(i => !seeds.some(s => s.key === i.key)).sort((a, b) => (b.added || 0) - (a.added || 0)).slice(0, 4 - seeds.length).map(i => ({...i, how: "list"})));
+  let seeds = pick(W.filter(w => w.like === 1).sort((a, b) => b.t - a.t), 5).map(w => ({...w, how: "liked"}));
+  if (seeds.length < 4) seeds = seeds.concat(pick(W.filter(w => w.like !== -1 && !seeds.some(s => s.key === w.key)).sort((a, b) => b.t - a.t), 4 - seeds.length).map(w => ({...w, how: "seen"})));
+  if (seeds.length < 4) seeds = seeds.concat(pick(listItems().filter(i => !seeds.some(s => s.key === i.key)).sort((a, b) => (b.added || 0) - (a.added || 0)), 4 - seeds.length).map(i => ({...i, how: "list"})));
   if (!seeds.length) return {seeds, recs: []};
   const dislikedW = W.filter(w => w.like === -1).sort((a, b) => b.t - a.t).slice(0, 5);
   const seedFull = new Map(), seedRecs = [], disliked = [], likedGenres = new Map();
@@ -92,8 +98,9 @@ async function buildRecs(){
       }
     } catch(e){}
   });
-  const exclude = new Set([...Object.keys(P().watched), ...listItems().map(i => i.key)]);
-  const ranked = scoreCandidates({seedRecs, disliked, exclude, likedGenres}).slice(0, 16);
+  const exclude = new Set([...Object.keys(P().watched), ...listItems().map(i => i.key), ...(refresh ? recsShown : [])]);
+  let ranked = scoreCandidates({seedRecs, disliked, exclude, likedGenres}).slice(0, refresh ? 24 : 16);
+  if (refresh) ranked = ranked.map(c => ({...c, score: c.score + Math.random() * 3}));
   const reg = await regions(ranked.map(c => ({type: c.r.media_type, id: c.r.id}))).catch(() => new Map());
   for (const c of ranked){
     const r = reg.get(c.key);
@@ -109,6 +116,7 @@ async function buildRecs(){
   }
   await pool(best, 4, async c => { try { c.full = await titleFull(c.r.media_type, c.r.id) } catch(e){} });
   for (const c of best) c.reasons = reasonsFor(c, c.full, seedFull, {countryName: COUNTRIES[S.country], status: c.st});
+  for (const c of best) recsShown.add(c.key);
   return {seeds, recs: best, disliked: disliked.length};
 }
 function drawRecs({seeds, recs, disliked}){
@@ -134,7 +142,12 @@ async function renderForYou(o){
   if (!$("r-genre").options[1]) fillGenres($("r-genre"), R.type, "Egal welches Genre");
   if (recsCache && !o?.force){ drawRecs(recsCache); return }
   $("e-status").textContent = "Suche Empfehlungen …"; $("e-list").innerHTML = "";
-  try { recsCache = await buildRecs(); drawRecs(recsCache) }
+  try {
+    const refresh = !!o?.force;
+    recsCache = await buildRecs(refresh);
+    if (refresh && !recsCache.recs.length && recsShown.size){ recsShown.clear(); recsCache = await buildRecs(true) } // alles schon gezeigt: von vorn
+    drawRecs(recsCache);
+  }
   catch(e){ $("e-status").textContent = e.message }
 }
 $("e-refresh").addEventListener("click", () => renderForYou({force: true}));

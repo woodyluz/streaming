@@ -21,5 +21,9 @@
   "triggers": { "crons": ["0 7 * * *"] },
 
   // Variablen aus dem Dashboard bei jedem Deploy behalten
-  "keep_vars": true
+  "keep_vars": true,
+
+  // Vorschau-Builds für Branches und Pull Requests (`wrangler preview`). Ohne diesen Block schlägt der Build fehl.
+  // Cron und Durable Objects (gemeinsame Listen) sind in Vorschauen nicht enthalten.
+  "previews": {}
 }

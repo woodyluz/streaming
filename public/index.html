@@ -176,6 +176,12 @@
       <div><h2 class="sec">Für dich empfohlen</h2><p class="sub" style="margin:0">Aus dem, was du gesehen, gemocht und gemerkt hast. Was du nicht mochtest, wird abgewertet.</p></div>
       <button type="button" id="e-refresh">Neu berechnen</button>
     </div>
+    <div class="seg" role="group" aria-label="Grundlage der Empfehlungen" id="e-mode">
+      <button type="button" data-mode="mix" aria-pressed="true">Gemischt</button>
+      <button type="button" data-mode="top" aria-pressed="false">Meine Top-Bewertungen</button>
+      <button type="button" data-mode="picked" aria-pressed="false">Ähnlich wie …</button>
+    </div>
+    <div class="chips" id="e-seeds" role="group" aria-label="Ausgewählte Titel" hidden></div>
     <p class="status" id="e-status" role="status"></p>
     <div id="e-list"></div>
   </section>

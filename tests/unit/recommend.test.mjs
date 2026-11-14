@@ -34,3 +34,12 @@ test("Begründung nennt gemeinsame Regie, Besetzung, Genre und Verfügbarkeit", 
   assert.ok(r.list.some(x => x.includes("Science-Fiction")));
   assert.ok(r.list.some(x => x.includes("Netflix")));
 });
+
+test("Ausgewählte Ausgangstitel: Begründung nennt „ausgewählt“ und zählt wie Favoriten", () => {
+  const seed = {key: "movie:1", title: "Inception", how: "picked"};
+  const rec = {id: 2, media_type: "movie", title: "Tenet", vote_average: 7.4, vote_count: 500, genre_ids: []};
+  const [c] = scoreCandidates({seedRecs: [{seed, recs: [rec]}]});
+  const [l] = scoreCandidates({seedRecs: [{seed: {...seed, how: "liked"}, recs: [rec]}]});
+  assert.equal(c.score, l.score);
+  assert.match(reasonsFor(c, null, new Map()).why, /ausgewählt/);
+});
